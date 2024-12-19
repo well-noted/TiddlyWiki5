@@ -3,34 +3,26 @@ title: $:/plugins/tiddlywiki/multiwikiserver/routes/helpers/multipart-forms.js
 type: application/javascript
 module-type: library
 
-A function that handles an incoming multipart/form-data stream, streaming the data to temporary files
-in the store/inbox folder. Once the data is received, it imports any tiddlers and invokes a callback.
-
+A function that handles an incoming multipart/form-data stream
 \*/
 
 (function() {
 
-/*
-Process an incoming new multipart/form-data stream. Options include:
-
-store - tiddler store
-state - provided by server.js
-response - provided by server.js
-bag_name - name of bag to write to
-callback - invoked as callback(err,results). Results is an array of titles of imported tiddlers
-*/
 exports.processIncomingStream = function(options) {
-	const self = this;
 	const path = require("path"),
 		fs = require("fs");
+	const fields = {};
+	
 	// Process the incoming data
 	const inboxName = $tw.utils.stringifyDate(new Date());
 	const inboxPath = path.resolve(options.store.attachmentStore.storePath,"inbox",inboxName);
 	$tw.utils.createDirectory(inboxPath);
-	let fileStream = null; // Current file being written
-	let hash = null; // Accumulating hash of current part
-	let length = 0; // Accumulating length of current part
-	const parts = []; // Array of {name:, headers:, value:, hash:} and/or {name:, filename:, headers:, inboxFilename:, hash:} 
+	let fileStream = null;
+	let hash = null;
+	let length = 0;
+	const parts = [];
+	
+	
 	options.state.streamMultipartData({
 		cbPartStart: function(headers,name,filename) {
 			const part = {
@@ -58,42 +50,83 @@ exports.processIncomingStream = function(options) {
 			length = length + chunk.length;
 			hash.update(chunk);
 		},
-		cbPartEnd: function() {
-			if(fileStream) {
+		cbPartEnd: function () {
+			if (fileStream) {
 				fileStream.end();
 			}
 			fileStream = null;
-			parts[parts.length - 1].hash = $tw.sjcl.codec.hex.fromBits(hash.finalize()).slice(0,64).toString();
+			parts[parts.length - 1].hash = $tw.sjcl.codec.hex.fromBits(hash.finalize()).slice(0, 64).toString();
 			hash = null;
-		},
-		cbFinished: function(err) {
-			if(err) {
-				return options.callback(err);
-			} else {
-				const partFile = parts.find(part => part.name === "file-to-upload" && !!part.filename);
-				if(!partFile) {
-					return state.sendResponse(400, {"Content-Type": "text/plain"},"Missing file to upload");
-				}
-				const type = partFile.headers["content-type"];
-				const tiddlerFields = {
-					title: partFile.filename,
-					type: type
-				};
-				for(const part of parts) {
-					const tiddlerFieldPrefix = "tiddler-field-";
-					if(part.name.startsWith(tiddlerFieldPrefix)) {
-						tiddlerFields[part.name.slice(tiddlerFieldPrefix.length)] = part.value.trim();
+
+			// Store form field values
+			const part = parts[parts.length - 1];
+			if (!part.filename) {
+				const fieldName = part.name;
+				// Handle multiple values for the same field name
+				if (fields[fieldName] !== undefined) {
+					if (!Array.isArray(fields[fieldName])) {
+						fields[fieldName] = [fields[fieldName]];
 					}
+					fields[fieldName].push(part.value.trim());
+				} else {
+					fields[fieldName] = part.value.trim();
 				}
-				options.store.saveBagTiddlerWithAttachment(tiddlerFields,options.bag_name,{
-					filepath: partFile.inboxFilename,
-					type: type,
-					hash: partFile.hash
-				});
-				$tw.utils.deleteDirectory(inboxPath);
-				options.callback(null,[tiddlerFields.title]);
+
+				// Debug logging
+				console.log(`Field "${fieldName}" updated:`, fields[fieldName]);
 			}
+		},
+
+		cbFinished: function(err) {
+	if(err) {
+		return options.callback(err);
+	}
+
+	console.log("Final fields object:", fields);
+
+   
+	// Handle select/deselect all operations
+	if(fields.operation === "selectAll" || fields.operation === "deselectAll") {
+		const selectAll = fields.operation === "selectAll" ? "1" : "0";
+		const redirectUrl = `/bags/${options.bag_name}/?selectAll=${selectAll}`;
+		options.state.redirect(302, redirectUrl);
+		return;
+	}
+	
+	// Handle move operation
+	if(fields.operation === "move") {
+		options.callback(null, [], fields);
+		return;
+	}
+	
+	// Handle file upload
+	const partFile = parts.find(part => part.name === "file-to-upload" && !!part.filename);
+	if(!partFile) {
+		return options.state.sendResponse(400, {"Content-Type": "text/plain"}, "Missing file to upload");
+	}
+
+	const type = partFile.headers["content-type"];
+	const tiddlerFields = {
+		title: partFile.filename,
+		type: type
+	};
+
+	for(const part of parts) {
+		const tiddlerFieldPrefix = "tiddler-field-";
+		if(part.name.startsWith(tiddlerFieldPrefix)) {
+			tiddlerFields[part.name.slice(tiddlerFieldPrefix.length)] = part.value.trim();
 		}
+	}
+
+	options.store.saveBagTiddlerWithAttachment(tiddlerFields, options.bag_name, {
+		filepath: partFile.inboxFilename,
+		type: type,
+		hash: partFile.hash
+	});
+
+	$tw.utils.deleteDirectory(inboxPath);
+	options.callback(null, [tiddlerFields.title], fields);
+}
 	});
 };
 

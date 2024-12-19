@@ -54,6 +54,10 @@ SqlTiddlerStore.prototype.removeEventListener = function(type,listener) {
 	}
 };
 
+SqlTiddlerStore.prototype.getFilteredBagTiddlers = function (bag_name, searchTerm) {
+	return this.sqlTiddlerDatabase.getFilteredBagTiddlers(bag_name, searchTerm);
+};
+
 SqlTiddlerStore.prototype.dispatchEvent = function(type /*, args */) {
 	const self = this;
 	if(!this.eventOutstanding[type]) {

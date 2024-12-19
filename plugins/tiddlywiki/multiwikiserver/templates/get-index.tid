@@ -130,7 +130,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
 
 ! Bags
 
-<ul class="mws-vertical-list">
+<!-- <ul class="mws-vertical-list">
 	<$list filter="[<bag-list>jsonindexes[]] :filter[<bag-list>jsonget<currentTiddler>,[bag_name].hide.system[]] :sort[<bag-list>jsonget<currentTiddler>,[bag_name]]" variable="bag-index" counter="counter">
 		<li class="mws-wiki-card">
     <$let
@@ -148,6 +148,58 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
     </$let>
 </li>
 	</$list>
+</ul> -->
+
+
+<ul class="mws-vertical-list">
+    <$list filter="[<bag-list>jsonindexes[]] :filter[<bag-list>jsonget<currentTiddler>,[bag_name].hide.system[]] :sort[<bag-list>jsonget<currentTiddler>,[bag_name]]" variable="bag-index">
+        <li class="mws-wiki-card">
+            <$let
+                bag-info={{{ [<bag-list>jsonextract<bag-index>] }}}
+                bag-name={{{ [<bag-info>jsonget[bag_name]] }}}
+            >
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div style="flex-grow: 1;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                            <$transclude $variable="bagPill"/>
+                            <$text text={{{ [<bag-info>jsonget[description]] }}}/>
+                        </div>
+                        
+                        <div class="mws-wiki-card-meta" style="margin-left: 20px;">
+                            <strong>Associated Recipes:</strong>
+                            <ul class="mws-vertical-list" style="margin-left: 20px; margin-top: 5px;">
+                                <$list filter="[<recipe-list>jsonindexes[]]" variable="recipe-index">
+                                    <$let 
+                                        recipe={{{ [<recipe-list>jsonextract<recipe-index>] }}}
+                                    >
+                                        <$set name="bag-names" value={{{ [<recipe>jsonget[bag_names]join[ ]] }}}>
+                                            <$list filter="[<bag-names>split[ ]match<bag-name>]" variable="match">
+                                                <li style="margin-bottom: 5px;">
+                                                    <a href=`/wiki/${[<recipe>jsonget[recipe_name]encodeuricomponent[]]}$` rel="noopener noreferrer" target="_blank">
+                                                        <$text text={{{ [<recipe>jsonget[recipe_name]] }}}/>
+                                                    </a>
+                                                    <span class="recipe-description" style="color: #666; margin-left: 5px;">
+                                                        - <$text text={{{ [<recipe>jsonget[description]] }}}/>
+                                                    </span>
+                                                </li>
+                                            </$list>
+                                        </$set>
+                                    </$let>
+                                </$list>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="mws-wiki-card-actions" style="margin-left: 20px;">
+                        <form action={{{ [<bag-info>jsonget[bag_name]addprefix[/bags/]] }}} method="post" onsubmit="return confirmBagDelete(this)">
+                            <input type="hidden" name="_method" value="DELETE"/>
+                            <button type="submit" class="mws-delete-button">Delete Bag</button>
+                        </form>
+                    </div>
+                </div>
+            </$let>
+        </li>
+    </$list>
 </ul>
 
 <form action="/bags" method="post" class="mws-form">
@@ -260,7 +312,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    margin-left: 10px;
+    margin-left: 10em;
 }
 
 .mws-delete-button:hover {
