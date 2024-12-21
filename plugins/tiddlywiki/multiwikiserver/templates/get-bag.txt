@@ -52,12 +52,16 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 	</form>
 </div>
 
-<!-- Select/Deselect-->
+<!-- Select/Deselect All IS NOT WORKING-->
 <div class="checkbox-controls">
-    <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = true)" class="button">Select All</a>
-    <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = false)" class="button">Deselect All</a>
+    <$button class="tc-btn-invisible select-button" actions="""
+        <$list filter="[all[current]type[checkbox]]">
+            <$action-setfield $tiddler=<<currentTiddler>> checked={{{ [<action>match[select]then[true]else[false]] }}}/>
+        </$list>
+    """>
+        Select All
+    </$button>
 </div>
-
 
 <!-- Tiddler List with Checkboxes -->
 <form action="tiddlers/" method="post" class="mws-form" enctype="multipart/form-data">

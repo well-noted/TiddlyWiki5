@@ -67,7 +67,7 @@ exports.handler = function (request, response, state) {
 						"bag-tiddlers": JSON.stringify(bagTiddlers),
 						"bag-list": JSON.stringify(allowedBags),
 						"current-filter": filterText,
-						"select-all": state.queryParameters.selectAll === "1" ? "checked" : "",
+						// "select-all": state.queryParameters.selectAll === "1" ? "checked" : "",
 						"current-field": filterField
 					}
 				});
