@@ -61,45 +61,52 @@ The video parser parses a video tiddler into an embeddable HTML element
 							if (xhr.status === 200) {
 								var blob = new Blob([xhr.response], { type: type });
 								var url = URL.createObjectURL(blob);
+								
+								video.addEventListener('loadedmetadata', function() {
+									// Start monitoring buffer after metadata is loaded
+									video.addEventListener("progress", function () {
+										var buffered = this.buffered;
+										if (buffered && buffered.length > 0) {
+											var total = 0;
+											for (var i = 0; i < buffered.length; i++) {
+												var start = buffered.start(i);
+												var end = buffered.end(i);
+												total += (end - start);
+												console.log(`Buffer ${i}: ${start}-${end} (${((end - start) / this.duration * 100).toFixed(2)}%)`);
+											}
+											console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
+										}
+									});
+								});
+
+								video.addEventListener('error', function() {
+									console.error('Video loading error:', video.error);
+								});
+
 								video.src = url;
+								
+								// Clean up object URL when video is loaded
+								video.addEventListener('loadeddata', function() {
+									URL.revokeObjectURL(url);
+								});
 							}
 						};
 
 						xhr.send();
 
-						// Create a debounced progress handler
-						let progressTimeout;
-
-						// Clear existing event listeners
-						video.removeEventListener("progress", null);
-
-						video.addEventListener("progress", function progressHandler() {
-							// Debounce progress updates to prevent rapid firing
-							if (progressTimeout) {
-								clearTimeout(progressTimeout);
-							}
-							
-							progressTimeout = setTimeout(() => {
-								var buffered = this.buffered;
-								if (buffered.length > 0) {
-									var total = 0;
-									for (var i = 0; i < buffered.length; i++) {
-										var start = buffered.start(i);
-										var end = buffered.end(i);
-										total += (end - start);
-										console.log(`Buffer ${i}: ${start}-${end} (${((end - start) / this.duration * 100).toFixed(2)}%)`);
-									}
-									console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
+						// Monitor buffer state
+						video.addEventListener("progress", function () {
+							var buffered = this.buffered;
+							if (buffered.length > 0) {
+								var total = 0;
+								for (var i = 0; i < buffered.length; i++) {
+									var start = buffered.start(i);
+									var end = buffered.end(i);
+									total += (end - start);
+									console.log(`Buffer ${i}: ${start}-${end} (${((end - start) / this.duration * 100).toFixed(2)}%)`);
 								}
-							}, 250); // Update every 250ms at most
-						});
-
-						// Cleanup handler
-						video.addEventListener("unload", function() {
-							if (progressTimeout) {
-								clearTimeout(progressTimeout);
+								console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
 							}
-							video.removeEventListener("progress", progressHandler);
 						});
 					});
 				}, 100);
