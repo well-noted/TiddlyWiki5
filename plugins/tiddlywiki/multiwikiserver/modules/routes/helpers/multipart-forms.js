@@ -78,57 +78,57 @@ exports.processIncomingStream = function(options) {
 		},
 
 		cbFinished: function(err) {
-    if(err) {
-        return options.callback(err);
-    }
+	if(err) {
+		return options.callback(err);
+	}
 
-    console.log("Final fields object:", fields);
-    
-    // Handle move operation
-    if(fields.operation === "move") {
-        options.callback(null, [], fields);
-        return;
-    }
-    
-    // Find all file parts
-    const fileParts = parts.filter(part => part.name === "files-to-upload" && !!part.filename);
-    if(fileParts.length === 0) {
-        return options.state.sendResponse(400, {"Content-Type": "text/plain"}, "No files to upload");
-    }
+	console.log("Final fields object:", fields);
+	
+	// Handle move operation
+	if(fields.operation === "move") {
+		options.callback(null, [], fields);
+		return;
+	}
+	
+	// Find all file parts
+	const fileParts = parts.filter(part => part.name === "files-to-upload" && !!part.filename);
+	if(fileParts.length === 0) {
+		return options.state.sendResponse(400, {"Content-Type": "text/plain"}, "No files to upload");
+	}
 
-    const savedTitles = [];
+	const savedTitles = [];
 
-    // Process each file
-    for(const filePart of fileParts) {
-        const type = filePart.headers["content-type"];
-        const tiddlerFields = {
-            title: filePart.filename,
-            type: type
-        };
+	// Process each file
+	for(const filePart of fileParts) {
+		const type = filePart.headers["content-type"];
+		const tiddlerFields = {
+			title: filePart.filename,
+			type: type
+		};
 
-        // Apply common fields from the form to all files
-        for(const part of parts) {
-            const tiddlerFieldPrefix = "tiddler-field-";
-            if(part.name.startsWith(tiddlerFieldPrefix)) {
-                tiddlerFields[part.name.slice(tiddlerFieldPrefix.length)] = part.value.trim();
-            }
-        }
+		// Apply common fields from the form to all files
+		for(const part of parts) {
+			const tiddlerFieldPrefix = "tiddler-field-";
+			if(part.name.startsWith(tiddlerFieldPrefix)) {
+				tiddlerFields[part.name.slice(tiddlerFieldPrefix.length)] = part.value.trim();
+			}
+		}
 
-        // Save each file as a separate tiddler with attachment
-        options.store.saveBagTiddlerWithAttachment(tiddlerFields, options.bag_name, {
-            filepath: filePart.inboxFilename,
-            type: type,
-            hash: filePart.hash
-        });
+		// Save each file as a separate tiddler with attachment
+		options.store.saveBagTiddlerWithAttachment(tiddlerFields, options.bag_name, {
+			filepath: filePart.inboxFilename,
+			type: type,
+			hash: filePart.hash
+		});
 
-        savedTitles.push(tiddlerFields.title);
-    }
+		savedTitles.push(tiddlerFields.title);
+	}
 
-    // Clean up the inbox directory
-    $tw.utils.deleteDirectory(inboxPath);
-    
-    // Return the list of saved tiddler titles
-    options.callback(null, savedTitles, fields);
+	// Clean up the inbox directory
+	$tw.utils.deleteDirectory(inboxPath);
+	
+	// Return the list of saved tiddler titles
+	options.callback(null, savedTitles, fields);
 }
 	});
 };
