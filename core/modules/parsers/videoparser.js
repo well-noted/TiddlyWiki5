@@ -50,51 +50,41 @@ The video parser parses a video tiddler into an embeddable HTML element
 						xhr.open('GET', video.currentSrc, true);
 						xhr.responseType = 'blob';
 
-						xhr.onprogress = function (e) {
-							if (e.lengthComputable) {
-								console.log("Loading: " + (e.loaded / e.total * 100).toFixed(2) + "%");
-							}
-						};
-
 						xhr.onload = function () {
 							if (xhr.status === 200) {
-								var blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
-								var url = URL.createObjectURL(blob);
+								// Store blob in video element
+								video._blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
+								var url = URL.createObjectURL(video._blob);
 								video.src = url;
 								video.dataset.loaded = "true";
-								video.dataset.blobUrl = url;  // Store URL for cleanup
-
-								// Clean up only when video element is removed
-								video.addEventListener('remove', function() {
-									if (video.dataset.blobUrl) {
-										URL.revokeObjectURL(video.dataset.blobUrl);
-										delete video.dataset.blobUrl;
+								
+								// Handle seeking
+								video.addEventListener('seeking', function() {
+									if (!video._blob) return;
+									// Recreate URL if needed
+									if (!video.src || video.src === '') {
+										video.src = URL.createObjectURL(video._blob);
 									}
 								});
 
-								// Add unload cleanup
-								window.addEventListener('unload', function() {
-									if (video.dataset.blobUrl) {
-										URL.revokeObjectURL(video.dataset.blobUrl);
-									}
+								// Clean up only when video element is actually removed
+								var observer = new MutationObserver(function(mutations) {
+									mutations.forEach(function(mutation) {
+										if ([...mutation.removedNodes].includes(video)) {
+											URL.revokeObjectURL(video.src);
+											delete video._blob;
+											observer.disconnect();
+										}
+									});
 								});
-							} else {
-								console.log("Video load failed with status: " + xhr.status);
+
+								observer.observe(video.parentNode, {
+									childList: true
+								});
 							}
-						};
-
-						xhr.onerror = function() {
-							console.log("Error loading video");
 						};
 
 						xhr.send();
-
-						video.addEventListener("progress", function () {
-							var buffered = this.buffered;
-							if (buffered.length > 0) {
-								console.log("Buffer state: " + (buffered.end(0) / this.duration * 100).toFixed(2) + "%");
-							}
-						});
 					});
 				}, 100);
 			});
