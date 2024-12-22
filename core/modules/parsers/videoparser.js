@@ -41,46 +41,50 @@ The video parser parses a video tiddler into an embeddable HTML element
 			$tw.hooks.addHook("th-page-refreshed", function () {
 				setTimeout(function () {
 					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
-						// Force aggressive loading
+						if (video.dataset.loaded === "true") return;
+
 						video.preload = "auto";
 						video.autobuffer = true;
 
-						// Create XMLHttpRequest to load full file
 						var xhr = new XMLHttpRequest();
 						xhr.open('GET', video.currentSrc, true);
 						xhr.responseType = 'blob';
 
-						xhr.onprogress = function (e) {
-							if (e.lengthComputable) {
-								var percentComplete = (e.loaded / e.total) * 100;
-								console.log("Loading: " + percentComplete.toFixed(2) + "%");
-							}
-						};
-
 						xhr.onload = function () {
 							if (xhr.status === 200) {
-								var blob = new Blob([xhr.response], { type: type });
-								var url = URL.createObjectURL(blob);
+								// Store blob in video element
+								video._blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
+								var url = URL.createObjectURL(video._blob);
 								video.src = url;
+								video.dataset.loaded = "true";
+								
+								// Handle seeking
+								video.addEventListener('seeking', function() {
+									if (!video._blob) return;
+									// Recreate URL if needed
+									if (!video.src || video.src === '') {
+										video.src = URL.createObjectURL(video._blob);
+									}
+								});
+
+								// Clean up only when video element is actually removed
+								var observer = new MutationObserver(function(mutations) {
+									mutations.forEach(function(mutation) {
+										if ([...mutation.removedNodes].includes(video)) {
+											URL.revokeObjectURL(video.src);
+											delete video._blob;
+											observer.disconnect();
+										}
+									});
+								});
+
+								observer.observe(video.parentNode, {
+									childList: true
+								});
 							}
 						};
 
 						xhr.send();
-
-						// Monitor buffer state
-						video.addEventListener("progress", function () {
-							var buffered = this.buffered;
-							if (buffered.length > 0) {
-								var total = 0;
-								for (var i = 0; i < buffered.length; i++) {
-									var start = buffered.start(i);
-									var end = buffered.end(i);
-									total += (end - start);
-									console.log(`Buffer ${i}: ${start}-${end} (${((end - start) / this.duration * 100).toFixed(2)}%)`);
-								}
-								console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
-							}
-						});
 					});
 				}, 100);
 			});
