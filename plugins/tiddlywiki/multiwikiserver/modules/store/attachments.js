@@ -43,7 +43,7 @@ function AttachmentStore(options) {
 Check if an attachment name is valid
 */
 AttachmentStore.prototype.isValidAttachmentName = function(attachment_name) {
-    const re = new RegExp('^[a-f0-9]{64}$');
+	const re = new RegExp('^[a-f0-9]{64}$');
 	return re.test(attachment_name);
 };
 
@@ -58,16 +58,26 @@ _canonical_uri: canonical uri of the content
 AttachmentStore.prototype.saveAttachment = function(options) {
 	const path = require("path"),
 		fs = require("fs");
+	
 	// Compute the content hash for naming the attachment
 	const contentHash = $tw.sjcl.codec.hex.fromBits($tw.sjcl.hash.sha256.hash(options.text)).slice(0,64).toString();
-	// Choose the best file extension for the attachment given its type
-	const contentTypeInfo = $tw.config.contentTypeInfo[options.type] || $tw.config.contentTypeInfo["application/octet-stream"];
-	// Creat the attachment directory
+	
+	// Get the original filename from the options or use a default
+	const originalFilename = options.filename || "data";
+	
+	// Extract the file extension from the original filename
+	const fileExtension = path.extname(originalFilename);
+	
+	// Create the attachment directory
 	const attachmentPath = path.resolve(this.storePath,"files",contentHash);
 	$tw.utils.createDirectory(attachmentPath);
+	
+	// Use the original filename instead of generating one
+	const dataFilename = originalFilename;
+	
 	// Save the data file
-	const dataFilename = "data" + contentTypeInfo.extension;
-	fs.writeFileSync(path.resolve(attachmentPath,dataFilename),options.text,contentTypeInfo.encoding);
+	fs.writeFileSync(path.resolve(attachmentPath,dataFilename),options.text,options.encoding || "binary");
+	
 	// Save the meta.json file
 	fs.writeFileSync(path.resolve(attachmentPath,"meta.json"),JSON.stringify({
 		_canonical_uri: options._canonical_uri,
@@ -75,10 +85,129 @@ AttachmentStore.prototype.saveAttachment = function(options) {
 		modified: $tw.utils.stringifyDate(new Date()),
 		contentHash: contentHash,
 		filename: dataFilename,
+		originalFilename: originalFilename,
 		type: options.type
 	},null,4));
+	
 	return contentHash;
 };
+
+AttachmentStore.prototype.saveMultipleAttachments = function(filesArray) {
+	const results = [];
+	
+	for (const file of filesArray) {
+		// Each file object should have these properties:
+		// - text: the file content
+		// - filename: the original filename
+		// - type: MIME type
+		// - _canonical_uri (optional)
+		
+		const options = {
+			text: file.text,
+			filename: file.filename, // Use the original filename
+			type: file.type || this.getMimeTypeFromFilename(file.filename),
+			_canonical_uri: file._canonical_uri,
+			encoding: file.encoding || "binary"
+		};
+		
+		try {
+			const contentHash = this.saveAttachment(options);
+			results.push({
+				success: true,
+				contentHash: contentHash,
+				filename: file.filename
+			});
+		} catch (error) {
+			results.push({
+				success: false,
+				filename: file.filename,
+				error: error.message
+			});
+		}
+	}
+	
+	return results;
+};
+
+// Helper function to determine MIME type from filename
+AttachmentStore.prototype.getMimeTypeFromFilename = function(filename) {
+	const extension = path.extname(filename).toLowerCase();
+	const mimeTypes = {
+		'.txt': 'text/plain',
+		'.html': 'text/html',
+		'.css': 'text/css',
+		'.js': 'application/javascript',
+		'.json': 'application/json',
+		'.png': 'image/png',
+		'.jpg': 'image/jpeg',
+		'.jpeg': 'image/jpeg',
+		'.gif': 'image/gif',
+		'.pdf': 'application/pdf',
+		// Add more mappings as needed
+	};
+	
+	return mimeTypes[extension] || 'application/octet-stream';
+};
+
+// Add this new method to handle multiple attachments
+AttachmentStore.prototype.saveMultipleAttachments = function(filesArray) {
+	const results = [];
+	
+	for (const file of filesArray) {
+		const options = {
+			text: file.text,
+			type: file.type,
+			reference: file.reference,
+			_canonical_uri: file._canonical_uri
+		};
+		
+		try {
+			const contentHash = this.saveAttachment(options);
+			results.push({
+				success: true,
+				contentHash: contentHash,
+				filename: file.filename
+			});
+		} catch (error) {
+			results.push({
+				success: false,
+				filename: file.filename,
+				error: error.message
+			});
+		}
+	}
+	
+	return results;
+};
+
+AttachmentStore.prototype.adoptMultipleAttachments = function(filesArray) {
+	const results = [];
+	
+	for (const file of filesArray) {
+		try {
+			const hash = this.adoptAttachment(
+				file.incomingFilepath,
+				file.type,
+				file.hash,
+				file._canonical_uri
+			);
+			results.push({
+				success: true,
+				hash: hash,
+				filename: file.incomingFilepath
+			});
+		} catch (error) {
+			results.push({
+				success: false,
+				filename: file.incomingFilepath,
+				error: error.message
+			});
+		}
+	}
+	
+	return results;
+};
+
 
 /*
 Adopts an attachment file into the store
