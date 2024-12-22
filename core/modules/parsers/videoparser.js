@@ -41,24 +41,18 @@ The video parser parses a video tiddler into an embeddable HTML element
 			$tw.hooks.addHook("th-page-refreshed", function () {
 				setTimeout(function () {
 					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
-						// Skip if already processed
-						if (video.dataset.loaded === "true") {
-							return;
-						}
+						if (video.dataset.loaded === "true") return;
 
-						// Force aggressive loading
 						video.preload = "auto";
 						video.autobuffer = true;
 
-						// Create XMLHttpRequest to load full file
 						var xhr = new XMLHttpRequest();
 						xhr.open('GET', video.currentSrc, true);
 						xhr.responseType = 'blob';
 
 						xhr.onprogress = function (e) {
 							if (e.lengthComputable) {
-								var percentComplete = (e.loaded / e.total) * 100;
-								console.log("Loading: " + percentComplete.toFixed(2) + "%");
+								console.log("Loading: " + (e.loaded / e.total * 100).toFixed(2) + "%");
 							}
 						};
 
@@ -68,12 +62,22 @@ The video parser parses a video tiddler into an embeddable HTML element
 								var url = URL.createObjectURL(blob);
 								video.src = url;
 								video.dataset.loaded = "true";
-								
-								// Clean up object URL when video is loaded
-								video.onloadeddata = function() {
-									console.log("Video loaded successfully");
-									URL.revokeObjectURL(url);
-								};
+								video.dataset.blobUrl = url;  // Store URL for cleanup
+
+								// Clean up only when video element is removed
+								video.addEventListener('remove', function() {
+									if (video.dataset.blobUrl) {
+										URL.revokeObjectURL(video.dataset.blobUrl);
+										delete video.dataset.blobUrl;
+									}
+								});
+
+								// Add unload cleanup
+								window.addEventListener('unload', function() {
+									if (video.dataset.blobUrl) {
+										URL.revokeObjectURL(video.dataset.blobUrl);
+									}
+								});
 							} else {
 								console.log("Video load failed with status: " + xhr.status);
 							}
@@ -85,7 +89,6 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 						xhr.send();
 
-						// Monitor buffer state
 						video.addEventListener("progress", function () {
 							var buffered = this.buffered;
 							if (buffered.length > 0) {
