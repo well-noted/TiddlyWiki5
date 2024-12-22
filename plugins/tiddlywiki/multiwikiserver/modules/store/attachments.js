@@ -151,33 +151,56 @@ AttachmentStore.prototype.getMimeTypeFromFilename = function(filename) {
 
 // Add this new method to handle multiple attachments
 AttachmentStore.prototype.saveMultipleAttachments = function(filesArray) {
-	const results = [];
-	
-	for (const file of filesArray) {
-		const options = {
-			text: file.text,
-			type: file.type,
-			reference: file.reference,
-			_canonical_uri: file._canonical_uri
-		};
-		
-		try {
-			const contentHash = this.saveAttachment(options);
-			results.push({
-				success: true,
-				contentHash: contentHash,
-				filename: file.filename
-			});
-		} catch (error) {
-			results.push({
-				success: false,
-				filename: file.filename,
-				error: error.message
-			});
-		}
-	}
-	
-	return results;
+    const results = [];
+    const startTime = Date.now();
+    console.log(`🚀 Starting save of ${filesArray.length} attachments...`);
+    
+    for (let i = 0; i < filesArray.length; i++) {
+        const file = filesArray[i];
+        console.log(`\n📝 [${i + 1}/${filesArray.length}] Processing file: ${file.filename}`);
+        console.log(`   Type: ${file.type}`);
+        
+        const options = {
+            text: file.text,
+            type: file.type,
+            reference: file.reference,
+            _canonical_uri: file._canonical_uri
+        };
+        
+        try {
+            const processStart = Date.now();
+            const contentHash = this.saveAttachment(options);
+            const duration = Date.now() - processStart;
+            
+            console.log(`✅ Success! (${duration}ms)`);
+            console.log(`   Hash: ${contentHash}`);
+            
+            results.push({
+                success: true,
+                contentHash: contentHash,
+                filename: file.filename,
+                duration: duration
+            });
+        } catch (error) {
+            console.error(`❌ Failed!`);
+            console.error(`   Error: ${error.message}`);
+            results.push({
+                success: false,
+                filename: file.filename,
+                error: error.message
+            });
+        }
+    }
+    
+    const totalDuration = Date.now() - startTime;
+    const successful = results.filter(r => r.success).length;
+    console.log(`\n📊 Summary:`);
+    console.log(`   Total files: ${filesArray.length}`);
+    console.log(`   Successful: ${successful}`);
+    console.log(`   Failed: ${filesArray.length - successful}`);
+    console.log(`   Total time: ${totalDuration}ms`);
+    
+    return results;
 };
 
 AttachmentStore.prototype.adoptMultipleAttachments = function(filesArray) {
