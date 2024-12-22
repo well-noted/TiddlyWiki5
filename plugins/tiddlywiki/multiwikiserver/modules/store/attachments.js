@@ -182,8 +182,10 @@ AttachmentStore.prototype.saveMultipleAttachments = function(filesArray) {
 
 AttachmentStore.prototype.adoptMultipleAttachments = function(filesArray) {
 	const results = [];
+	console.log(`Starting adoption of ${filesArray.length} attachments...`);
 	
 	for (const file of filesArray) {
+		console.log(`Processing file: ${file.incomingFilepath} (type: ${file.type})`);
 		try {
 			const hash = this.adoptAttachment(
 				file.incomingFilepath,
@@ -191,12 +193,15 @@ AttachmentStore.prototype.adoptMultipleAttachments = function(filesArray) {
 				file.hash,
 				file._canonical_uri
 			);
+			console.log(`✓ Successfully adopted: ${file.incomingFilepath} (hash: ${hash})`);
 			results.push({
 				success: true,
 				hash: hash,
 				filename: file.incomingFilepath
 			});
 		} catch (error) {
+			console.error(`✗ Failed to adopt: ${file.incomingFilepath}`);
+			console.error(`  Error: ${error.message}`);
 			results.push({
 				success: false,
 				filename: file.incomingFilepath,
@@ -205,9 +210,11 @@ AttachmentStore.prototype.adoptMultipleAttachments = function(filesArray) {
 		}
 	}
 	
+	const successful = results.filter(r => r.success).length;
+	console.log(`Finished processing ${filesArray.length} files. Success: ${successful}, Failed: ${filesArray.length - successful}`);
+	
 	return results;
 };
-
 
 /*
 Adopts an attachment file into the store
