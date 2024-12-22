@@ -108,7 +108,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
 			<label class="mws-form-field-description">
 				Recipe name
 			</label>
-			<input name="recipe_name" type="text"/>
+			<input name="recipe_name" type="text" required/>
 		</div>
 		<div class="mws-form-field">
 			<label class="mws-form-field-description">
@@ -120,7 +120,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
 			<label class="mws-form-field-description">
 				Bags in recipe (space separated)
 			</label>
-			<input name="bag_names" type="text"/>
+			<input name="bag_names" type="text" required/>
 		</div>
 	</div>
 	<div class="mws-form-buttons">
@@ -129,27 +129,6 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
 </form>
 
 ! Bags
-
-<!-- <ul class="mws-vertical-list">
-	<$list filter="[<bag-list>jsonindexes[]] :filter[<bag-list>jsonget<currentTiddler>,[bag_name].hide.system[]] :sort[<bag-list>jsonget<currentTiddler>,[bag_name]]" variable="bag-index" counter="counter">
-		<li class="mws-wiki-card">
-    <$let
-        bag-info={{{ [<bag-list>jsonextract<bag-index>] }}}
-        bag-name={{{ [<bag-info>jsonget[bag_name]] }}}
-    >
-        <$transclude $variable="bagPill"/>
-        <$text text={{{ [<bag-info>jsonget[description]] }}}/>
-        <div class="mws-wiki-card-actions">
-    <form action={{{ [<bag-info>jsonget[bag_name]addprefix[/bags/]] }}} method="post" onsubmit="return confirmBagDelete(this)">
-        <input type="hidden" name="_method" value="DELETE"/>
-        <button type="submit" class="mws-delete-button">Delete Bag</button>
-    </form>
-</div>
-    </$let>
-</li>
-	</$list>
-</ul> -->
-
 
 <ul class="mws-vertical-list">
     <$list filter="[<bag-list>jsonindexes[]] :filter[<bag-list>jsonget<currentTiddler>,[bag_name].hide.system[]] :sort[<bag-list>jsonget<currentTiddler>,[bag_name]]" variable="bag-index">
@@ -211,7 +190,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-index
 			<label class="mws-form-field-description">
 				Bag name
 			</label>
-			<input name="bag_name" type="text"/>
+			<input name="bag_name" type="text" required/>
 		</div>
 		<div class="mws-form-field">
 			<label class="mws-form-field-description">

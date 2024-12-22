@@ -14,19 +14,13 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 >
 	<div>
 		<label>
-			File to upload:
+			Files to upload:
 		</label>
-		<input type="file" name="file-to-upload" accept="*/*" />
+		<input type="file" name="files-to-upload" accept="*/*" multiple />
 	</div>
 	<div>
 		<label>
-			Tiddler title:
-		</label>
-		<input type="text" name="tiddler-field-title" />
-	</div>
-	<div>
-		<label>
-			Tiddler tags:
+			Tiddler tags (applied to all files):
 		</label>
 		<input type="text" name="tiddler-field-tags" />
 	</div>
@@ -54,8 +48,8 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 
 <!-- Select/Deselect-->
 <div class="checkbox-controls">
-    <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = true)" class="button">Select All</a>
-    <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = false)" class="button">Deselect All</a>
+	<a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = true)" class="button">Select All</a>
+	<a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = false)" class="button">Deselect All</a>
 </div>
 
 

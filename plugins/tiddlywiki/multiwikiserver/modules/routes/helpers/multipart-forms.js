@@ -78,54 +78,57 @@ exports.processIncomingStream = function(options) {
 		},
 
 		cbFinished: function(err) {
-	if(err) {
-		return options.callback(err);
-	}
+    if(err) {
+        return options.callback(err);
+    }
 
-	console.log("Final fields object:", fields);
+    console.log("Final fields object:", fields);
+    
+    // Handle move operation
+    if(fields.operation === "move") {
+        options.callback(null, [], fields);
+        return;
+    }
+    
+    // Find all file parts
+    const fileParts = parts.filter(part => part.name === "files-to-upload" && !!part.filename);
+    if(fileParts.length === 0) {
+        return options.state.sendResponse(400, {"Content-Type": "text/plain"}, "No files to upload");
+    }
 
-   
-	// Handle select/deselect all operations
-	if(fields.operation === "selectAll" || fields.operation === "deselectAll") {
-		const selectAll = fields.operation === "selectAll" ? "1" : "0";
-		const redirectUrl = `/bags/${options.bag_name}/?selectAll=${selectAll}`;
-		options.state.redirect(302, redirectUrl);
-		return;
-	}
-	
-	// Handle move operation
-	if(fields.operation === "move") {
-		options.callback(null, [], fields);
-		return;
-	}
-	
-	// Handle file upload
-	const partFile = parts.find(part => part.name === "file-to-upload" && !!part.filename);
-	if(!partFile) {
-		return options.state.sendResponse(400, {"Content-Type": "text/plain"}, "Missing file to upload");
-	}
+    const savedTitles = [];
 
-	const type = partFile.headers["content-type"];
-	const tiddlerFields = {
-		title: partFile.filename,
-		type: type
-	};
+    // Process each file
+    for(const filePart of fileParts) {
+        const type = filePart.headers["content-type"];
+        const tiddlerFields = {
+            title: filePart.filename,
+            type: type
+        };
 
-	for(const part of parts) {
-		const tiddlerFieldPrefix = "tiddler-field-";
-		if(part.name.startsWith(tiddlerFieldPrefix)) {
-			tiddlerFields[part.name.slice(tiddlerFieldPrefix.length)] = part.value.trim();
-		}
-	}
+        // Apply common fields from the form to all files
+        for(const part of parts) {
+            const tiddlerFieldPrefix = "tiddler-field-";
+            if(part.name.startsWith(tiddlerFieldPrefix)) {
+                tiddlerFields[part.name.slice(tiddlerFieldPrefix.length)] = part.value.trim();
+            }
+        }
 
-	options.store.saveBagTiddlerWithAttachment(tiddlerFields, options.bag_name, {
-		filepath: partFile.inboxFilename,
-		type: type,
-		hash: partFile.hash
-	});
+        // Save each file as a separate tiddler with attachment
+        options.store.saveBagTiddlerWithAttachment(tiddlerFields, options.bag_name, {
+            filepath: filePart.inboxFilename,
+            type: type,
+            hash: filePart.hash
+        });
 
-	$tw.utils.deleteDirectory(inboxPath);
-	options.callback(null, [tiddlerFields.title], fields);
+        savedTitles.push(tiddlerFields.title);
+    }
+
+    // Clean up the inbox directory
+    $tw.utils.deleteDirectory(inboxPath);
+    
+    // Return the list of saved tiddler titles
+    options.callback(null, savedTitles, fields);
 }
 	});
 };
