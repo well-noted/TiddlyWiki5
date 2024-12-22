@@ -41,6 +41,11 @@ The video parser parses a video tiddler into an embeddable HTML element
 			$tw.hooks.addHook("th-page-refreshed", function () {
 				setTimeout(function () {
 					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
+						// Skip if already processed
+						if (video.dataset.loaded === "true") {
+							return;
+						}
+
 						// Force aggressive loading
 						video.preload = "auto";
 						video.autobuffer = true;
@@ -59,10 +64,23 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 						xhr.onload = function () {
 							if (xhr.status === 200) {
-								var blob = new Blob([xhr.response], { type: type });
+								var blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 								var url = URL.createObjectURL(blob);
 								video.src = url;
+								video.dataset.loaded = "true";
+								
+								// Clean up object URL when video is loaded
+								video.onloadeddata = function() {
+									console.log("Video loaded successfully");
+									URL.revokeObjectURL(url);
+								};
+							} else {
+								console.log("Video load failed with status: " + xhr.status);
 							}
+						};
+
+						xhr.onerror = function() {
+							console.log("Error loading video");
 						};
 
 						xhr.send();
@@ -71,14 +89,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 						video.addEventListener("progress", function () {
 							var buffered = this.buffered;
 							if (buffered.length > 0) {
-								var total = 0;
-								for (var i = 0; i < buffered.length; i++) {
-									var start = buffered.start(i);
-									var end = buffered.end(i);
-									total += (end - start);
-									console.log(`Buffer ${i}: ${start}-${end} (${((end - start) / this.duration * 100).toFixed(2)}%)`);
-								}
-								console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
+								console.log("Buffer state: " + (buffered.end(0) / this.duration * 100).toFixed(2) + "%");
 							}
 						});
 					});
