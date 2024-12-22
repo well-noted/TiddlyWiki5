@@ -41,7 +41,14 @@ The video parser parses a video tiddler into an embeddable HTML element
 			$tw.hooks.addHook("th-page-refreshed", function () {
 				setTimeout(function () {
 					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
-						if (video.dataset.loaded === "true") return;
+						// Skip if already processed and playing correctly
+						if (video.dataset.loaded === "true" && video._blob) {
+							return;
+						}
+
+						// Store current position if video was playing
+						const currentTime = video.currentTime;
+						const wasPlaying = !video.paused;
 
 						video.preload = "auto";
 						video.autobuffer = true;
@@ -52,22 +59,28 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 						xhr.onload = function () {
 							if (xhr.status === 200) {
-								// Store blob in video element
 								video._blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 								var url = URL.createObjectURL(video._blob);
 								video.src = url;
 								video.dataset.loaded = "true";
 								
-								// Handle seeking
+								// Restore position and play state
+								video.addEventListener('loadedmetadata', function() {
+									video.currentTime = currentTime;
+									if (wasPlaying) {
+										video.play();
+									}
+								}, { once: true });
+
+								// Handle seeking without reload
 								video.addEventListener('seeking', function() {
 									if (!video._blob) return;
-									// Recreate URL if needed
 									if (!video.src || video.src === '') {
 										video.src = URL.createObjectURL(video._blob);
 									}
 								});
 
-								// Clean up only when video element is actually removed
+								// Clean up only on actual removal
 								var observer = new MutationObserver(function(mutations) {
 									mutations.forEach(function(mutation) {
 										if ([...mutation.removedNodes].includes(video)) {
@@ -87,7 +100,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 						xhr.send();
 					});
 				}, 100);
-			});
+			}, { passive: true });
 		}
 
 		this.tree = [element];
