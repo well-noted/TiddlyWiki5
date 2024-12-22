@@ -59,45 +59,9 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 						xhr.onload = function () {
 							if (xhr.status === 200) {
-								try {
-									var blob = new Blob([xhr.response], { type: type });
-									var url = URL.createObjectURL(blob);
-									
-									// Single progress event listener
-									const progressHandler = function () {
-										var buffered = this.buffered;
-										if (buffered && buffered.length > 0) {
-											var total = 0;
-											for (var i = 0; i < buffered.length; i++) {
-												var start = buffered.start(i);
-												var end = buffered.end(i);
-												total += (end - start);
-												console.log(`Buffer ${i}: ${start}-${end} (${((end - start) / this.duration * 100).toFixed(2)}%)`);
-											}
-											console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
-										}
-									};
-
-									video.addEventListener('loadedmetadata', function() {
-										video.addEventListener("progress", progressHandler, { passive: true });
-									});
-
-									video.addEventListener('error', function() {
-										console.error('Video loading error:', video.error);
-										URL.revokeObjectURL(url);
-									});
-
-									// Clean up
-									video.addEventListener('loadeddata', function() {
-										URL.revokeObjectURL(url);
-									});
-
-									// Set source after listeners
-									video.src = url;
-								} catch (error) {
-									console.error('Video processing error:', error);
-									URL.revokeObjectURL(url);
-								}
+								var blob = new Blob([xhr.response], { type: type });
+								var url = URL.createObjectURL(blob);
+								video.src = url;
 							}
 						};
 
