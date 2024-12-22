@@ -59,12 +59,12 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 						xhr.onload = function () {
 							if (xhr.status === 200) {
-								var blob = new Blob([xhr.response], { type: type });
-								var url = URL.createObjectURL(blob);
-								
-								video.addEventListener('loadedmetadata', function() {
-									// Start monitoring buffer after metadata is loaded
-									video.addEventListener("progress", function () {
+								try {
+									var blob = new Blob([xhr.response], { type: type });
+									var url = URL.createObjectURL(blob);
+									
+									// Single progress event listener
+									const progressHandler = function () {
 										var buffered = this.buffered;
 										if (buffered && buffered.length > 0) {
 											var total = 0;
@@ -76,19 +76,28 @@ The video parser parses a video tiddler into an embeddable HTML element
 											}
 											console.log(`Total buffered: ${(total / this.duration * 100).toFixed(2)}%`);
 										}
+									};
+
+									video.addEventListener('loadedmetadata', function() {
+										video.addEventListener("progress", progressHandler, { passive: true });
 									});
-								});
 
-								video.addEventListener('error', function() {
-									console.error('Video loading error:', video.error);
-								});
+									video.addEventListener('error', function() {
+										console.error('Video loading error:', video.error);
+										URL.revokeObjectURL(url);
+									});
 
-								video.src = url;
-								
-								// Clean up object URL when video is loaded
-								video.addEventListener('loadeddata', function() {
+									// Clean up
+									video.addEventListener('loadeddata', function() {
+										URL.revokeObjectURL(url);
+									});
+
+									// Set source after listeners
+									video.src = url;
+								} catch (error) {
+									console.error('Video processing error:', error);
 									URL.revokeObjectURL(url);
-								});
+								}
 							}
 						};
 
