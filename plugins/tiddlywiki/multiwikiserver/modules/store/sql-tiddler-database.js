@@ -107,7 +107,7 @@ SqlTiddlerDatabase.prototype.createTables = function() {
 			session_id TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			last_accessed TEXT NOT NULL,
-			PRIMARY KEY (user_id),
+			PRIMARY KEY (user_id, session_id),
 			FOREIGN KEY (user_id) REFERENCES users(user_id)
 		)
 	`,`
@@ -1047,32 +1047,21 @@ SqlTiddlerDatabase.prototype.listUsers = function() {
 };
 
 SqlTiddlerDatabase.prototype.createOrUpdateUserSession = function(userId, sessionId) {
-	const currentTimestamp = new Date().toISOString();
+    const currentTimestamp = new Date().toISOString();
+    
+    // Create new session without affecting other sessions
+    this.engine.runStatement(`
+        INSERT INTO sessions (user_id, session_id, created_at, last_accessed)
+        VALUES ($userId, $sessionId, $timestamp, $timestamp)
+        ON CONFLICT(user_id, session_id) DO UPDATE SET
+        last_accessed = $timestamp
+    `, {
+        $userId: userId,
+        $sessionId: sessionId,
+        $timestamp: currentTimestamp
+    });
 
-	// First, try to update an existing session
-	const updateResult = this.engine.runStatement(`
-			UPDATE sessions
-			SET session_id = $sessionId, last_accessed = $timestamp
-			WHERE user_id = $userId
-	`, {
-			$userId: userId,
-			$sessionId: sessionId,
-			$timestamp: currentTimestamp
-	});
-
-	// If no existing session was updated, create a new one
-	if (updateResult.changes === 0) {
-			this.engine.runStatement(`
-					INSERT INTO sessions (user_id, session_id, created_at, last_accessed)
-					VALUES ($userId, $sessionId, $timestamp, $timestamp)
-			`, {
-					$userId: userId,
-					$sessionId: sessionId,
-					$timestamp: currentTimestamp
-			});
-	}
-
-	return sessionId;
+    return sessionId;
 };
 
 SqlTiddlerDatabase.prototype.findUserBySessionId = function(sessionId) {
