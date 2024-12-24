@@ -89,7 +89,26 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 	return this.engine.transaction(fn);
 };
 
-SqlTiddlerDatabase.prototype.createTables = function() {
+	SqlTiddlerDatabase.prototype.createTables = function () {
+		// Drop and recreate sessions table
+		this.engine.runStatement(`
+        DROP TABLE IF EXISTS sessions
+    `);
+
+		this.engine.runStatement(`
+        CREATE TABLE sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            last_accessed TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    `);
+
+		this.engine.runStatement(`
+        CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
+    `);
+
 	this.engine.runStatements([`
 		-- Users table
 		CREATE TABLE IF NOT EXISTS users (
@@ -124,16 +143,6 @@ SqlTiddlerDatabase.prototype.createTables = function() {
 			role_name TEXT UNIQUE NOT NULL,
 			description TEXT
 		)
-	`,`
-	DROP TABLE IF EXISTS sessions;
-        CREATE TABLE sessions (
-            session_id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            last_accessed TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        );
-        CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 	`,`
 		-- Permissions table
 		CREATE TABLE IF NOT EXISTS permissions (
