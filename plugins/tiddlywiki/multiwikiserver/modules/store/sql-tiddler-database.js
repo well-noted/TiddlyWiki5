@@ -125,6 +125,16 @@ SqlTiddlerDatabase.prototype.createTables = function() {
 			description TEXT
 		)
 	`,`
+	DROP TABLE IF EXISTS sessions;
+        CREATE TABLE sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            last_accessed TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        );
+        CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+	`,`
 		-- Permissions table
 		CREATE TABLE IF NOT EXISTS permissions (
 			permission_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1049,12 +1059,9 @@ SqlTiddlerDatabase.prototype.listUsers = function() {
 SqlTiddlerDatabase.prototype.createOrUpdateUserSession = function(userId, sessionId) {
     const currentTimestamp = new Date().toISOString();
     
-    // Create new session without affecting other sessions
     this.engine.runStatement(`
-        INSERT INTO sessions (user_id, session_id, created_at, last_accessed)
-        VALUES ($userId, $sessionId, $timestamp, $timestamp)
-        ON CONFLICT(user_id, session_id) DO UPDATE SET
-        last_accessed = $timestamp
+        INSERT INTO sessions (session_id, user_id, created_at, last_accessed)
+        VALUES ($sessionId, $userId, $timestamp, $timestamp)
     `, {
         $userId: userId,
         $sessionId: sessionId,
@@ -1062,6 +1069,18 @@ SqlTiddlerDatabase.prototype.createOrUpdateUserSession = function(userId, sessio
     });
 
     return sessionId;
+};
+
+SqlTiddlerDatabase.prototype.deleteExpiredSessions = function() {
+    const expiryTime = new Date();
+    expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
+    
+    this.engine.runStatement(`
+        DELETE FROM sessions 
+        WHERE last_accessed < $expiryTime
+    `, {
+        $expiryTime: expiryTime.toISOString()
+    });
 };
 
 SqlTiddlerDatabase.prototype.findUserBySessionId = function(sessionId) {
