@@ -89,25 +89,25 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 	return this.engine.transaction(fn);
 };
 
-	SqlTiddlerDatabase.prototype.createTables = function () {
-		// Drop and recreate sessions table
-		this.engine.runStatement(`
-        DROP TABLE IF EXISTS sessions
-    `);
+SqlTiddlerDatabase.prototype.createTables = function () {
+	// Drop and recreate sessions table
+	this.engine.runStatement(`
+	DROP TABLE IF EXISTS sessions
+`);
 
-		this.engine.runStatement(`
-        CREATE TABLE sessions (
-            session_id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            last_accessed TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-    `);
+	this.engine.runStatement(`
+	CREATE TABLE sessions (
+		session_id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		created_at TEXT NOT NULL,
+		last_accessed TEXT NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(user_id)
+	)
+`);
 
-		this.engine.runStatement(`
-        CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
-    `);
+	this.engine.runStatement(`
+	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
+`);
 
 	this.engine.runStatements([`
 		-- Users table
@@ -254,6 +254,19 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 	`,`
 		CREATE INDEX IF NOT EXISTS idx_acl_entity_id ON acl(entity_name)
 	`]);
+};
+
+SqlTiddlerDatabase.prototype.updateSessionTimestamp = function(sessionId) {
+	 const currentTimestamp = new Date().toISOString();
+	 
+	 this.engine.runStatement(`
+		  UPDATE sessions 
+		  SET last_accessed = $timestamp
+		  WHERE session_id = $sessionId
+	 `, {
+		  $sessionId: sessionId,
+		  $timestamp: currentTimestamp
+	 });
 };
 
 SqlTiddlerDatabase.prototype.listBags = function() {
@@ -1066,30 +1079,30 @@ SqlTiddlerDatabase.prototype.listUsers = function() {
 };
 
 SqlTiddlerDatabase.prototype.createOrUpdateUserSession = function(userId, sessionId) {
-    const currentTimestamp = new Date().toISOString();
-    
-    this.engine.runStatement(`
-        INSERT INTO sessions (session_id, user_id, created_at, last_accessed)
-        VALUES ($sessionId, $userId, $timestamp, $timestamp)
-    `, {
-        $userId: userId,
-        $sessionId: sessionId,
-        $timestamp: currentTimestamp
-    });
+	 const currentTimestamp = new Date().toISOString();
+	 
+	 this.engine.runStatement(`
+		  INSERT INTO sessions (session_id, user_id, created_at, last_accessed)
+		  VALUES ($sessionId, $userId, $timestamp, $timestamp)
+	 `, {
+		  $userId: userId,
+		  $sessionId: sessionId,
+		  $timestamp: currentTimestamp
+	 });
 
-    return sessionId;
+	 return sessionId;
 };
 
 SqlTiddlerDatabase.prototype.deleteExpiredSessions = function() {
-    const expiryTime = new Date();
-    expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
-    
-    this.engine.runStatement(`
-        DELETE FROM sessions 
-        WHERE last_accessed < $expiryTime
-    `, {
-        $expiryTime: expiryTime.toISOString()
-    });
+	 const expiryTime = new Date();
+	 expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
+	 
+	 this.engine.runStatement(`
+		  DELETE FROM sessions 
+		  WHERE last_accessed < $expiryTime
+	 `, {
+		  $expiryTime: expiryTime.toISOString()
+	 });
 };
 
 SqlTiddlerDatabase.prototype.findUserBySessionId = function(sessionId) {
