@@ -1093,17 +1093,18 @@ SqlTiddlerDatabase.prototype.createOrUpdateUserSession = function(userId, sessio
 	 return sessionId;
 };
 
-SqlTiddlerDatabase.prototype.deleteExpiredSessions = function() {
-	 const expiryTime = new Date();
-	 expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
+// Temporarily disabled until Add "Remember me on this device" which bypasses expires session
+// SqlTiddlerDatabase.prototype.deleteExpiredSessions = function() {
+// 	 const expiryTime = new Date();
+// 	 expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
 	 
-	 this.engine.runStatement(`
-		  DELETE FROM sessions 
-		  WHERE last_accessed < $expiryTime
-	 `, {
-		  $expiryTime: expiryTime.toISOString()
-	 });
-};
+// 	 this.engine.runStatement(`
+// 		  DELETE FROM sessions 
+// 		  WHERE last_accessed < $expiryTime
+// 	 `, {
+// 		  $expiryTime: expiryTime.toISOString()
+// 	 });
+// };
 
 SqlTiddlerDatabase.prototype.findUserBySessionId = function(sessionId) {
 	// First, get the user_id from the sessions table
