@@ -118,6 +118,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 		if ($tw.browser) {
 			const processedVideos = new WeakMap();
 			const bufferThreshold = 0.1; // 10% buffered before play
+			const TIMESTAMP_THRESHOLD = 2;
 
 			$tw.hooks.addHook("th-page-refreshed", function () {
 				setTimeout(function () {
@@ -126,10 +127,36 @@ The video parser parses a video tiddler into an embeddable HTML element
 							video.dataset.initialized = "true";
 							debugLog('Init', 'Initializing video player');
 
+							let lastSavedTime = 0;
+							let lastSaveTimestamp = 0;
+							let isInitializing = true;
+
+							function saveTimestamp() {
+								if (isInitializing) return;
+								
+								const currentTiddler = video.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
+									if (tiddler) {
+										const currentTime = video.currentTime;
+										if (Math.abs(currentTime - lastSavedTime) >= TIMESTAMP_THRESHOLD) {
+											lastSavedTime = currentTime;
+											lastSaveTimestamp = Date.now();
+											$tw.wiki.addTiddler(new $tw.Tiddler(
+												tiddler,
+												{[getVideoTimestampField(video)]: currentTime.toString()}
+											));
+											debugLog('Timestamp', `Saved position: ${currentTime}s`);
+										}
+									}
+								}
+							}
+
 							// Create loading overlay
 							const overlay = document.createElement('div');
 							overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:white;';
-							overlay.innerHTML = 'Loading...';
+							overlay.innerHTML = 'Loading 0%';
 							video.parentNode.style.position = 'relative';
 							video.parentNode.appendChild(overlay);
 
@@ -141,7 +168,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 							xhr.onprogress = function(e) {
 								if (e.lengthComputable) {
 									const progress = (e.loaded / e.total * 100).toFixed(2);
-									debugLog('Progress', `Loading: ${progress}%`, {loaded: e.loaded, total: e.total});
+									debugLog('Progress', `Loading: ${progress}%`);
 									overlay.innerHTML = `Loading ${progress}%`;
 									if (progress >= (bufferThreshold * 100)) {
 										overlay.style.display = 'none';
@@ -151,48 +178,12 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 							xhr.onload = function() {
 								if (xhr.status === 200) {
-									debugLog('Load', 'Video data received');
 									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 									const url = URL.createObjectURL(blob);
 									video.src = url;
+									debugLog('Load', 'Video data received');
 									
 									// Add timestamp restoration
-									video.addEventListener('canplaythrough', function() {
-										const currentTiddler = video.closest('[data-tiddler-title]');
-										if (currentTiddler) {
-											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
-											if (savedTime) {
-												video.currentTime = parseFloat(savedTime);
-											}
-										}
-										overlay.style.display = 'none';
-									}, { once: true });
-
-									// Save timestamp on pause
-									video.addEventListener('pause', function() {
-										const currentTiddler = video.closest('[data-tiddler-title]');
-										if (currentTiddler) {
-											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-											const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
-											if (tiddler) {
-												$tw.wiki.addTiddler(
-													new $tw.Tiddler(tiddler, {
-														[getVideoTimestampField(video)]: video.currentTime.toString()
-													}),
-													{ suppressUpdate: true, quiet: true }
-												);
-											}
-										}
-									});
-
-									// Remove overlay when can play
-									video.addEventListener('canplay', function() {
-										overlay.style.display = 'none';
-										debugLog('Ready', 'Video ready to play');
-									}, {once: true});
-
-									// Set timestamp after metadata loads
 									video.addEventListener('loadedmetadata', function() {
 										debugLog('Metadata', 'Video metadata loaded');
 										const currentTiddler = video.closest('[data-tiddler-title]');
@@ -201,21 +192,20 @@ The video parser parses a video tiddler into an embeddable HTML element
 											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
 											if (savedTime) {
 												video.currentTime = parseFloat(savedTime);
-												debugLog('Timestamp', `Set position to ${savedTime}s`);
+												lastSavedTime = parseFloat(savedTime);
+												debugLog('Timestamp', `Restored position: ${savedTime}s`);
 											}
 										}
-									});
+										isInitializing = false;
+										overlay.style.display = 'none';
+									}, {once: true});
 
-									// Monitor actual loading progress
-									video.addEventListener('progress', function() {
-										if (video.buffered.length) {
-											const bufferedEnd = video.buffered.end(video.buffered.length - 1);
-											const duration = video.duration;
-											const progress = ((bufferedEnd / duration) * 100).toFixed(2);
-											debugLog('Buffer', `Buffered: ${progress}%`, {
-												buffered: bufferedEnd,
-												duration: duration
-											});
+									video.addEventListener('pause', saveTimestamp);
+									video.addEventListener('seeked', saveTimestamp);
+									
+									video.addEventListener('timeupdate', function() {
+										if (!isInitializing && Date.now() - lastSaveTimestamp > 1000) {
+											saveTimestamp();
 										}
 									});
 								} else {
