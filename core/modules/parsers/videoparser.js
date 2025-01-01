@@ -124,11 +124,12 @@ The video parser parses a video tiddler into an embeddable HTML element
 					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
 						if (!video.dataset.initialized) {
 							video.dataset.initialized = "true";
+							debugLog('Init', 'Initializing video player');
 
 							// Create loading overlay
 							const overlay = document.createElement('div');
 							overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:white;';
-							overlay.innerHTML = 'Loading 0%';
+							overlay.innerHTML = 'Loading...';
 							video.parentNode.style.position = 'relative';
 							video.parentNode.appendChild(overlay);
 
@@ -140,7 +141,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 							xhr.onprogress = function(e) {
 								if (e.lengthComputable) {
 									const progress = (e.loaded / e.total * 100).toFixed(2);
-									debugLog('Progress', `Loading: ${progress}%`);
+									debugLog('Progress', `Loading: ${progress}%`, {loaded: e.loaded, total: e.total});
 									overlay.innerHTML = `Loading ${progress}%`;
 									if (progress >= (bufferThreshold * 100)) {
 										overlay.style.display = 'none';
@@ -150,6 +151,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 							xhr.onload = function() {
 								if (xhr.status === 200) {
+									debugLog('Load', 'Video data received');
 									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 									const url = URL.createObjectURL(blob);
 									video.src = url;
@@ -181,6 +183,39 @@ The video parser parses a video tiddler into an embeddable HTML element
 													{ suppressUpdate: true, quiet: true }
 												);
 											}
+										}
+									});
+
+									// Remove overlay when can play
+									video.addEventListener('canplay', function() {
+										overlay.style.display = 'none';
+										debugLog('Ready', 'Video ready to play');
+									}, {once: true});
+
+									// Set timestamp after metadata loads
+									video.addEventListener('loadedmetadata', function() {
+										debugLog('Metadata', 'Video metadata loaded');
+										const currentTiddler = video.closest('[data-tiddler-title]');
+										if (currentTiddler) {
+											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
+											if (savedTime) {
+												video.currentTime = parseFloat(savedTime);
+												debugLog('Timestamp', `Set position to ${savedTime}s`);
+											}
+										}
+									});
+
+									// Monitor actual loading progress
+									video.addEventListener('progress', function() {
+										if (video.buffered.length) {
+											const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+											const duration = video.duration;
+											const progress = ((bufferedEnd / duration) * 100).toFixed(2);
+											debugLog('Buffer', `Buffered: ${progress}%`, {
+												buffered: bufferedEnd,
+												duration: duration
+											});
 										}
 									});
 								} else {
