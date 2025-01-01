@@ -12,6 +12,21 @@ The video parser parses a video tiddler into an embeddable HTML element
 	/*global $tw: false */
 	"use strict";
 
+	// Add helper function at top
+	function getVideoTimestampField(video) {
+		const sourceElement = video.querySelector('source');
+		let originalSrc = sourceElement ? sourceElement.getAttribute('src') : video.getAttribute('src');
+		if (originalSrc.startsWith('data:')) {
+			originalSrc = originalSrc.substring(originalSrc.indexOf('base64,') + 7);
+		}
+		let hash = 0;
+		for (let i = 0; i < originalSrc.length; i++) {
+			hash = ((hash << 5) - hash) + originalSrc.charCodeAt(i);
+			hash = hash & hash;
+		}
+		return `video-timestamp-${Math.abs(hash)}`;
+	}
+
 	var VideoParser = function (type, text, options) {
 		var element = {
 			type: "element",
@@ -40,93 +55,171 @@ The video parser parses a video tiddler into an embeddable HTML element
 		if ($tw.browser) {
 			const processedVideos = new WeakMap();
 			const bufferThreshold = 0.1; // 10% buffered before play
-			
-			$tw.hooks.addHook("th-page-refreshed", function() {
-				Array.from(document.getElementsByClassName("tw-video-element")).forEach(function(video) {
-					if (processedVideos.has(video)) return;
-					
-					// Create loading overlay
-					const overlay = document.createElement('div');
-					overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:white;';
-					overlay.innerHTML = 'Loading 0%';
-					video.parentNode.style.position = 'relative';
-					video.parentNode.appendChild(overlay);
-					
-					video.preload = "auto";
-					video.autobuffer = true;
-					
-					// Prevent play until buffered
-					video.addEventListener('play', function(e) {
-						if (video.buffered.length === 0 || (video.buffered.end(0) / video.duration) < bufferThreshold) {
-							console.log('Waiting for buffer...');
-							video.pause();
-						}
-					}, { passive: true });
-					
-					// Monitor buffering
-					video.addEventListener('progress', function() {
-						if (video.buffered.length > 0) {
-							const progress = (video.buffered.end(0) / video.duration * 100).toFixed(2);
-							console.log(`Buffer: ${progress}%`);
-							overlay.innerHTML = `Loading ${progress}%`;
-							
-							if ((video.buffered.end(0) / video.duration) >= bufferThreshold) {
-								overlay.style.display = 'none';
-							}
-						}
-					}, { passive: true });
-					
-					const xhr = new XMLHttpRequest();
-					xhr.open('GET', video.currentSrc, true);
-					xhr.responseType = 'blob';
-					
-					xhr.onprogress = function(e) {
-						if (e.lengthComputable) {
-							console.log(`Download: ${(e.loaded / e.total * 100).toFixed(2)}%`);
-						}
-					};
-					
-					xhr.onload = function() {
-						if (xhr.status === 200) {
-							const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
-							const url = URL.createObjectURL(blob);
-							video._blob = blob;
-							video.src = url;
-							processedVideos.set(video, {
-								blob: blob,
-								url: url
-							});
-							
-							// Handle seeking with passive listener
-							video.addEventListener('seeking', function() {
-								if (!video.src || video.src === '') {
-									video.src = URL.createObjectURL(video._blob);
+
+			$tw.hooks.addHook("th-page-refreshed", function () {
+				setTimeout(function () {
+					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
+						if (!video.dataset.initialized) {
+							video.dataset.initialized = "true";
+
+							// Only add timestamp listeners after video is buffered and ready
+							video.addEventListener('canplay', function () {
+								// Restore timestamp
+								const currentTiddler = video.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
+									if (savedTime) video.currentTime = parseFloat(savedTime);
 								}
-							}, { passive: true });
-							
-							// Cleanup
-							const observer = new MutationObserver(function(mutations) {
-								mutations.forEach(function(mutation) {
-									if ([...mutation.removedNodes].includes(video)) {
-										URL.revokeObjectURL(url);
-										processedVideos.delete(video);
-										observer.disconnect();
-										if (overlay.parentNode) {
-											overlay.parentNode.removeChild(overlay);
+
+								// Add timestamp saving on pause
+								video.addEventListener('pause', function () {
+									const currentTiddler = video.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
+										if (tiddler) {
+											$tw.wiki.addTiddler(
+												new $tw.Tiddler(tiddler, {
+													[getVideoTimestampField(video)]: video.currentTime.toString()
+												}),
+												{ suppressUpdate: true, quiet: true }
+											);
 										}
 									}
 								});
-							});
-							
-							observer.observe(video.parentNode, { 
-								childList: true,
-								subtree: true
-							});
+							}, { once: true });
+
+							// Continue with existing buffering code
+							if (processedVideos.has(video)) return;
+
+							// Create loading overlay
+							const overlay = document.createElement('div');
+							overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:white;';
+							overlay.innerHTML = 'Loading 0%';
+							video.parentNode.style.position = 'relative';
+							video.parentNode.appendChild(overlay);
+
+							video.preload = "auto";
+							video.autobuffer = true;
+
+							// Prevent play until buffered
+							video.addEventListener('play', function (e) {
+								if (video.buffered.length === 0 || (video.buffered.end(0) / video.duration) < bufferThreshold) {
+									console.log('Waiting for buffer...');
+									video.pause();
+								}
+							}, { passive: true });
+
+							// Monitor buffering
+							video.addEventListener('progress', function () {
+								if (video.buffered.length > 0) {
+									const progress = (video.buffered.end(0) / video.duration * 100).toFixed(2);
+									console.log(`Buffer: ${progress}%`);
+									overlay.innerHTML = `Loading ${progress}%`;
+
+									if ((video.buffered.end(0) / video.duration) >= bufferThreshold) {
+										overlay.style.display = 'none';
+									}
+								}
+							}, { passive: true });
+
+							const xhr = new XMLHttpRequest();
+							xhr.open('GET', video.currentSrc, true);
+							xhr.responseType = 'blob';
+
+							xhr.onprogress = function (e) {
+								if (e.lengthComputable) {
+									console.log(`Download: ${(e.loaded / e.total * 100).toFixed(2)}%`);
+								}
+							};
+
+							xhr.onload = function () {
+								if (xhr.status === 200) {
+									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
+									const url = URL.createObjectURL(blob);
+									video._blob = blob;
+									video.src = url;
+									processedVideos.set(video, {
+										blob: blob,
+										url: url
+									});
+
+									// Add timestamp restoration after buffering
+									video.addEventListener('canplaythrough', function() {
+										const currentTiddler = video.closest('[data-tiddler-title]');
+										if (currentTiddler) {
+											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
+											if (savedTime) {
+												video.currentTime = parseFloat(savedTime);
+											}
+										}
+									}, { once: true });
+
+									// Handle seeking with passive listener
+									video.addEventListener('seeking', function () {
+										if (!video.src || video.src === '') {
+											video.src = URL.createObjectURL(video._blob);
+										}
+									}, { passive: true });
+
+									// Cleanup
+									const observer = new MutationObserver(function (mutations) {
+										mutations.forEach(function (mutation) {
+											if ([...mutation.removedNodes].includes(video)) {
+												URL.revokeObjectURL(url);
+												processedVideos.delete(video);
+												observer.disconnect();
+												if (overlay.parentNode) {
+													overlay.parentNode.removeChild(overlay);
+												}
+											}
+										});
+									});
+
+									observer.observe(video.parentNode, {
+										childList: true,
+										subtree: true
+									});
+								}
+							};
+
+							xhr.send();
+
+							video.addEventListener('loadedmetadata', async () => {
+								requestAnimationFrame(async () => {
+									const xhr = new XMLHttpRequest();
+									// Encode the URL to handle spaces and special characters
+									const encodedUrl = encodeURI(video.currentSrc);
+									xhr.open('HEAD', encodedUrl);
+
+									xhr.onload = () => {
+										const observer = new MutationObserver((mutations) => {
+											requestAnimationFrame(() => {
+												mutations.forEach((mutation) => {
+													if (mutation.addedNodes.length) {
+														const overlay = mutation.target.querySelector('.play-overlay');
+														if (overlay) {
+															overlay.parentNode.removeChild(overlay);
+														}
+													}
+												});
+											});
+										});
+
+										observer.observe(video.parentNode, {
+											childList: true,
+											subtree: true
+										});
+									};
+
+									xhr.send();
+								});
+							}, { passive: true });
 						}
-					};
-					
-					xhr.send();
-				});
+					});
+				}, 100);
 			}, { passive: true });
 		}
 
