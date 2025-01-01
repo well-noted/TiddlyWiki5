@@ -1028,18 +1028,18 @@ Validation is for the most part left to the caller
 
 		return sessionId;
 	};
-//TEMPORARILY DISABLED
-	// SqlTiddlerDatabase.prototype.deleteExpiredSessions = function () {
-	// 	const expiryTime = new Date();
-	// 	expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
 
-	// 	this.engine.runStatement(`
-	// 	DELETE FROM sessions 
-	// 	WHERE last_accessed < $expiryTime
-	// `, {
-	// 		$expiryTime: expiryTime.toISOString()
-	// 	});
-	// };
+	SqlTiddlerDatabase.prototype.deleteExpiredSessions = function () {
+		const expiryTime = new Date();
+		expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
+
+		this.engine.runStatement(`
+		DELETE FROM sessions 
+		WHERE last_accessed < $expiryTime
+	`, {
+			$expiryTime: expiryTime.toISOString()
+		});
+	};
 
 	SqlTiddlerDatabase.prototype.createUserSession = function (userId, sessionId) {
 		const currentTimestamp = new Date().toISOString();
