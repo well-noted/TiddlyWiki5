@@ -128,14 +128,26 @@ The video parser parses a video tiddler into an embeddable HTML element
 							xhr.open('GET', video.currentSrc, true);
 							xhr.responseType = 'blob';
 
+							// Add range support
+							xhr.setRequestHeader('Range', 'bytes=0-');
+
+							// Improved progress tracking
 							xhr.onprogress = function (e) {
 								if (e.lengthComputable) {
-									console.log(`Download: ${(e.loaded / e.total * 100).toFixed(2)}%`);
+									const progress = (e.loaded / e.total * 100).toFixed(2);
+									console.log(`Download: ${progress}%`);
+									
+									if (overlay) {
+										overlay.innerHTML = `Loading ${progress}%`;
+										if (progress > (bufferThreshold * 100)) {
+											overlay.style.display = 'none';
+										}
+									}
 								}
 							};
 
 							xhr.onload = function () {
-								if (xhr.status === 200) {
+								if (xhr.status === 200 || xhr.status === 206) {
 									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 									const url = URL.createObjectURL(blob);
 									video._blob = blob;
