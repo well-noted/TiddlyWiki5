@@ -27,10 +27,49 @@ The video parser parses a video tiddler into an embeddable HTML element
 		return `video-timestamp-${Math.abs(hash)}`;
 	}
 
-	// Add chunk management
+	// Add performance monitoring and cache management
+	const MEMORY_LIMIT = 100 * 1024 * 1024; // 100MB limit
 	const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
-	const BUFFER_AHEAD = 3; // Number of chunks to preload
-	const chunkCache = new Map();
+	const BUFFER_AHEAD = 3; 
+
+	class ChunkCache {
+		constructor() {
+			this.chunks = new Map();
+			this.totalSize = 0;
+			this.lastAccessed = new Map();
+		}
+
+		set(key, value) {
+			const size = value.byteLength;
+			while (this.totalSize + size > MEMORY_LIMIT && this.chunks.size > 0) {
+				const oldest = [...this.lastAccessed.entries()]
+					.sort((a, b) => a[1] - b[1])[0][0];
+				this.delete(oldest);
+			}
+			this.chunks.set(key, value);
+			this.lastAccessed.set(key, Date.now());
+			this.totalSize += size;
+		}
+
+		get(key) {
+			if (this.chunks.has(key)) {
+				this.lastAccessed.set(key, Date.now());
+				return this.chunks.get(key);
+			}
+			return null;
+		}
+
+		delete(key) {
+			const chunk = this.chunks.get(key);
+			if (chunk) {
+				this.totalSize -= chunk.byteLength;
+				this.chunks.delete(key);
+				this.lastAccessed.delete(key);
+			}
+		}
+	}
+
+	const chunkCache = new ChunkCache();
 
 	var VideoParser = function (type, text, options) {
 		var element = {
@@ -250,6 +289,51 @@ The video parser parses a video tiddler into an embeddable HTML element
 									xhr.send();
 								});
 							}, { passive: true });
+
+							// Add to VideoParser initialization
+							const metrics = {
+								bufferCount: 0,
+								droppedFrames: 0,
+								loadTime: 0
+							};
+
+							video.addEventListener('progress', function() {
+								if (video.buffered.length > 0) {
+									// Dynamic chunk size based on network conditions
+									const networkSpeed = navigator.connection?.downlink || 10;
+									const dynamicChunkSize = Math.min(
+										CHUNK_SIZE * 2,
+										Math.max(CHUNK_SIZE / 2, networkSpeed * 100 * 1024)
+									);
+
+									// Predictive loading based on playback patterns
+									const currentChunk = Math.floor(video.currentTime / (dynamicChunkSize / 1024 / 1024));
+									const playbackRate = video.playbackRate;
+									const predictedChunks = Math.ceil(playbackRate * BUFFER_AHEAD);
+
+									loadChunks(video.currentSrc, currentChunk + predictedChunks, dynamicChunkSize);
+									
+									// Track performance
+									metrics.bufferCount++;
+									requestAnimationFrame(() => {
+										if (video.getVideoPlaybackQuality) {
+											metrics.droppedFrames = video.getVideoPlaybackQuality().droppedVideoFrames;
+										}
+									});
+								}
+							}, { passive: true });
+
+							// Monitor memory usage
+							setInterval(() => {
+								if (performance.memory) {
+									const memoryUsage = performance.memory.usedJSHeapSize / 1024 / 1024;
+									if (memoryUsage > 90) {
+										chunkCache.chunks.clear();
+										chunkCache.totalSize = 0;
+										chunkCache.lastAccessed.clear();
+									}
+								}
+							}, 30000);
 						}
 					});
 				}, 100);
@@ -261,11 +345,11 @@ The video parser parses a video tiddler into an embeddable HTML element
 	};
 
 	// Optimized chunk loading
-	async function loadChunks(src, endChunk) {
+	async function loadChunks(src, endChunk, dynamicChunkSize = CHUNK_SIZE) {
 		for (let i = 0; i < endChunk; i++) {
 			if (!chunkCache.has(`${src}-${i}`)) {
-				const start = i * CHUNK_SIZE;
-				const end = start + CHUNK_SIZE;
+				const start = i * dynamicChunkSize;
+				const end = start + dynamicChunkSize;
 				
 				const xhr = new XMLHttpRequest();
 				xhr.open('GET', src, true);
