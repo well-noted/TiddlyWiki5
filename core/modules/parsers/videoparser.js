@@ -12,6 +12,11 @@ The video parser parses a video tiddler into an embeddable HTML element
 	/*global $tw: false */
 	"use strict";
 
+	// Debug logging helper
+	const debugLog = (category, message, data = {}) => {
+		console.log(`[VideoParser:${category}]`, message, data);
+	};
+
 	// Add helper function at top
 	function getVideoTimestampField(video) {
 		const sourceElement = video.querySelector('source');
@@ -39,6 +44,10 @@ The video parser parses a video tiddler into an embeddable HTML element
 			this.lastAccessed = new Map();
 		}
 
+		has(key) {
+			return this.chunks.has(key);
+		}
+
 		set(key, value) {
 			const size = value.byteLength;
 			while (this.totalSize + size > MEMORY_LIMIT && this.chunks.size > 0) {
@@ -52,7 +61,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 		}
 
 		get(key) {
-			if (this.chunks.has(key)) {
+			if (this.has(key)) {
 				this.lastAccessed.set(key, Date.now());
 				return this.chunks.get(key);
 			}
@@ -70,6 +79,16 @@ The video parser parses a video tiddler into an embeddable HTML element
 	}
 
 	const chunkCache = new ChunkCache();
+
+	// Add constants for streaming
+	const MIN_BUFFER_SIZE = 2; // 2 seconds minimum buffer
+	const INITIAL_SEGMENT_DURATION = 4; // 4 second segments
+	const QUALITY_LEVELS = [
+		{width: 1920, height: 1080, bitrate: 5000000},
+		{width: 1280, height: 720, bitrate: 2500000},
+		{width: 854, height: 480, bitrate: 1000000},
+		{width: 640, height: 360, bitrate: 500000}
+	];
 
 	var VideoParser = function (type, text, options) {
 		var element = {
@@ -298,7 +317,8 @@ The video parser parses a video tiddler into an embeddable HTML element
 							};
 
 							video.addEventListener('progress', function() {
-								if (video.buffered.length > 0) {
+								const {isBuffered, bufferEnd} = getBufferState(video);
+								if (isBuffered) {
 									// Dynamic chunk size based on network conditions
 									const networkSpeed = navigator.connection?.downlink || 10;
 									const dynamicChunkSize = Math.min(
@@ -323,6 +343,48 @@ The video parser parses a video tiddler into an embeddable HTML element
 								}
 							}, { passive: true });
 
+							// Add debug logging
+							video.addEventListener('progress', function() {
+								const {isBuffered, bufferEnd} = getBufferState(video);
+								if (isBuffered) {
+									// Network monitoring
+									const networkSpeed = navigator.connection?.downlink || 10;
+									debugLog('Network', `Speed detected: ${networkSpeed}Mbps`);
+
+									// Chunk calculations
+									const dynamicChunkSize = Math.min(
+										CHUNK_SIZE * 2,
+										Math.max(CHUNK_SIZE / 2, networkSpeed * 100 * 1024)
+									);
+									debugLog('Chunks', `Dynamic chunk size: ${(dynamicChunkSize/1024/1024).toFixed(2)}MB`, {
+										networkSpeed,
+										baseSize: CHUNK_SIZE/1024/1024
+									});
+
+									// Buffer state
+									debugLog('Buffer', `Current state`, {
+										bufferEnd,
+										duration: video.duration,
+										percentage: ((bufferEnd / video.duration) * 100).toFixed(2) + '%'
+									});
+
+									// Memory tracking
+									if (performance.memory) {
+										debugLog('Memory', `Usage stats`, {
+											heapSize: (performance.memory.usedJSHeapSize/1024/1024).toFixed(2) + 'MB',
+											cacheSize: (chunkCache.totalSize/1024/1024).toFixed(2) + 'MB'
+										});
+									}
+
+									// Quality metrics
+									debugLog('Performance', `Playback metrics`, {
+										bufferCount: metrics.bufferCount,
+										droppedFrames: metrics.droppedFrames,
+										loadTime: metrics.loadTime
+									});
+								}
+							}, { passive: true });
+
 							// Monitor memory usage
 							setInterval(() => {
 								if (performance.memory) {
@@ -334,6 +396,59 @@ The video parser parses a video tiddler into an embeddable HTML element
 									}
 								}
 							}, 30000);
+
+							// Enable streaming if supported
+							if ('MediaSource' in window && MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"')) {
+								const mediaSource = new MediaSource();
+								video.src = URL.createObjectURL(mediaSource);
+						
+								mediaSource.addEventListener('sourceopen', () => {
+									const sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
+									
+									// Start with lowest quality for quick start
+									const networkSpeed = navigator.connection?.downlink || 1;
+									let currentQuality = QUALITY_LEVELS.findIndex(q => q.bitrate <= networkSpeed * 1000000) || QUALITY_LEVELS.length - 1;
+						
+									// Load initial segment
+									loadSegment(0, INITIAL_SEGMENT_DURATION, currentQuality);
+						
+									video.addEventListener('timeupdate', () => {
+										const buffered = video.buffered;
+										const currentTime = video.currentTime;
+										
+										// Safely check buffer state
+										if (buffered && buffered.length > 0) {
+											const bufferEnd = buffered.end(buffered.length - 1);
+											const bufferStart = buffered.start(buffered.length - 1);
+											
+											// Check if we need more buffer
+											if (bufferEnd - currentTime < MIN_BUFFER_SIZE) {
+												loadSegment(currentTime, INITIAL_SEGMENT_DURATION, currentQuality);
+											}
+
+											// Adapt quality based on buffer state
+											const bufferHealth = bufferEnd - currentTime;
+											if (bufferHealth < MIN_BUFFER_SIZE && currentQuality < QUALITY_LEVELS.length - 1) {
+												currentQuality++;
+											} else if (bufferHealth > MIN_BUFFER_SIZE * 2 && currentQuality > 0) {
+												currentQuality--;
+											}
+										}
+									});
+						
+									async function loadSegment(startTime, duration, qualityIndex) {
+										const quality = QUALITY_LEVELS[qualityIndex];
+										const segment = await fetchVideoSegment(video.currentSrc, startTime, duration, quality);
+										sourceBuffer.appendBuffer(segment);
+									}
+								});
+							} else {
+								// Fallback to basic loading for unsupported browsers
+								video.preload = "metadata";
+								video.addEventListener('canplay', () => {
+									video.play();
+								});
+							}
 						}
 					});
 				}, 100);
@@ -346,31 +461,46 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 	// Optimized chunk loading
 	async function loadChunks(src, endChunk, dynamicChunkSize = CHUNK_SIZE) {
-		for (let i = 0; i < endChunk; i++) {
-			if (!chunkCache.has(`${src}-${i}`)) {
-				const start = i * dynamicChunkSize;
-				const end = start + dynamicChunkSize;
-				
-				const xhr = new XMLHttpRequest();
-				xhr.open('GET', src, true);
-				xhr.responseType = 'arraybuffer';
-				xhr.setRequestHeader('Range', `bytes=${start}-${end}`);
-				
-				xhr.onload = function() {
-					if (xhr.status === 206) {
-						chunkCache.set(`${src}-${i}`, xhr.response);
-						
-						// Cleanup old chunks
-						if (chunkCache.size > BUFFER_AHEAD * 2) {
-							const oldestChunk = Math.floor(video.currentTime / CHUNK_SIZE) - BUFFER_AHEAD;
-							chunkCache.delete(`${src}-${oldestChunk}`);
-						}
+		try {
+			debugLog('Chunks', `Loading chunks up to ${endChunk}`);
+			for (let i = 0; i < endChunk; i++) {
+				const chunkKey = `${src}-${i}`;
+				if (!chunkCache.has(chunkKey)) {
+					const start = i * dynamicChunkSize;
+					const end = start + dynamicChunkSize;
+					
+					const response = await fetch(src, {
+						headers: { 'Range': `bytes=${start}-${end}` }
+					});
+					
+					if (response.ok) {
+						const chunk = await response.arrayBuffer();
+						chunkCache.set(chunkKey, chunk);
+						debugLog('Chunks', `Loaded chunk ${i}`, { size: chunk.byteLength });
 					}
-				};
-				
-				xhr.send();
+				}
 			}
+		} catch (error) {
+			debugLog('Error', `Failed to load chunks: ${error.message}`);
 		}
+	}
+
+	// Add safe buffer check helper
+	function getBufferState(video) {
+		const buffered = video.buffered;
+		if (!buffered || buffered.length === 0) {
+			return {
+				bufferEnd: 0,
+				bufferStart: 0,
+				isBuffered: false
+			};
+		}
+		
+		return {
+			bufferEnd: buffered.end(buffered.length - 1),
+			bufferStart: buffered.start(buffered.length - 1),
+			isBuffered: true
+		};
 	}
 
 	exports["video/ogg"] = VideoParser;
