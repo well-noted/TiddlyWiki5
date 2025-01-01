@@ -27,6 +27,11 @@ The video parser parses a video tiddler into an embeddable HTML element
 		return `video-timestamp-${Math.abs(hash)}`;
 	}
 
+	// Add chunk management
+	const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+	const BUFFER_AHEAD = 3; // Number of chunks to preload
+	const chunkCache = new Map();
+
 	var VideoParser = function (type, text, options) {
 		var element = {
 			type: "element",
@@ -116,11 +121,19 @@ The video parser parses a video tiddler into an embeddable HTML element
 								if (video.buffered.length > 0) {
 									const progress = (video.buffered.end(0) / video.duration * 100).toFixed(2);
 									console.log(`Buffer: ${progress}%`);
-									overlay.innerHTML = `Loading ${progress}%`;
-
-									if ((video.buffered.end(0) / video.duration) >= bufferThreshold) {
+									
+									// Adaptive buffer threshold
+									const networkSpeed = navigator.connection?.downlink || 10;
+									const adaptiveThreshold = Math.max(0.1, Math.min(0.3, 1 / networkSpeed));
+									
+									if ((video.buffered.end(0) / video.duration) >= adaptiveThreshold) {
 										overlay.style.display = 'none';
 									}
+									
+									// Preload next chunks
+									const currentTime = video.currentTime;
+									const chunksNeeded = Math.ceil((currentTime + 30) / CHUNK_SIZE); // 30s ahead
+									loadChunks(video.currentSrc, chunksNeeded);
 								}
 							}, { passive: true });
 
@@ -130,6 +143,14 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 							// Add range support
 							xhr.setRequestHeader('Range', 'bytes=0-');
+							xhr.setRequestHeader('Cache-Control', 'no-cache');
+							xhr.setRequestHeader('Pragma', 'no-cache');
+
+							if ('connection' in navigator) {
+								const connectionSpeed = navigator.connection?.downlink || 10;
+								const initialChunkSize = Math.min(CHUNK_SIZE, connectionSpeed * 1024 * 100);
+								xhr.setRequestHeader('Range', `bytes=0-${initialChunkSize}`);
+							}
 
 							// Improved progress tracking
 							xhr.onprogress = function (e) {
@@ -238,6 +259,35 @@ The video parser parses a video tiddler into an embeddable HTML element
 		this.tree = [element];
 		this.type = type;
 	};
+
+	// Optimized chunk loading
+	async function loadChunks(src, endChunk) {
+		for (let i = 0; i < endChunk; i++) {
+			if (!chunkCache.has(`${src}-${i}`)) {
+				const start = i * CHUNK_SIZE;
+				const end = start + CHUNK_SIZE;
+				
+				const xhr = new XMLHttpRequest();
+				xhr.open('GET', src, true);
+				xhr.responseType = 'arraybuffer';
+				xhr.setRequestHeader('Range', `bytes=${start}-${end}`);
+				
+				xhr.onload = function() {
+					if (xhr.status === 206) {
+						chunkCache.set(`${src}-${i}`, xhr.response);
+						
+						// Cleanup old chunks
+						if (chunkCache.size > BUFFER_AHEAD * 2) {
+							const oldestChunk = Math.floor(video.currentTime / CHUNK_SIZE) - BUFFER_AHEAD;
+							chunkCache.delete(`${src}-${oldestChunk}`);
+						}
+					}
+				};
+				
+				xhr.send();
+			}
+		}
+	}
 
 	exports["video/ogg"] = VideoParser;
 	exports["video/webm"] = VideoParser;
