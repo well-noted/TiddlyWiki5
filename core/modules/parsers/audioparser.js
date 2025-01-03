@@ -8,6 +8,7 @@ module-type: parser
 	/*global $tw: false */
 	"use strict";
 
+	// Debug system with comprehensive state tracking
 	const Debug = {
 		enabled: true,
 		prefix: '🎵 [AudioParser]',
@@ -24,6 +25,60 @@ module-type: parser
 		error: function (message, error) {
 			if (!this.enabled) return;
 			console.error(`${this.prefix} ❌ ${message}`, error);
+		},
+
+		warn: function (message, data) {
+			if (!this.enabled) return;
+			console.warn(`${this.prefix} ⚠️ ${message}`, data);
+		},
+
+		state: function (audio) {
+			if (!this.enabled) return;
+			console.log(`${this.prefix} Audio State:`, {
+				src: audio.currentSrc,
+				readyState: audio.readyState,
+				paused: audio.paused,
+				currentTime: audio.currentTime,
+				duration: audio.duration,
+				initialized: audio.dataset.initialized,
+				fullyInitialized: audio.dataset.fullyInitialized,
+				settingTime: audio.dataset.settingTime
+			});
+		}
+	};
+
+	// BatchedUpdates system for optimized tiddler updates
+	const BatchedUpdates = {
+		updates: {},
+		timeout: null,
+
+		queue: function (tiddlerTitle, fields) {
+			const currentTiddler = $tw.wiki.getTiddler(tiddlerTitle);
+			const hasChanged = Object.entries(fields).some(([field, value]) =>
+				currentTiddler?.fields[field] !== value
+			);
+
+			if (hasChanged) {
+				this.updates[tiddlerTitle] = this.updates[tiddlerTitle] || {};
+				Object.assign(this.updates[tiddlerTitle], fields);
+
+				if (this.timeout) clearTimeout(this.timeout);
+				this.timeout = setTimeout(() => this.flush(), 2000);
+			}
+		},
+
+		flush: function () {
+			const updates = Object.entries(this.updates).map(([title, fields]) => {
+				const tiddler = $tw.wiki.getTiddler(title);
+				return tiddler ? new $tw.Tiddler(tiddler, fields) : null;
+			}).filter(Boolean);
+
+			if (updates.length) {
+				$tw.wiki.addTiddlers(updates);
+			}
+
+			this.updates = {};
+			this.timeout = null;
 		}
 	};
 
@@ -72,12 +127,7 @@ module-type: parser
                             transition: background-color 0.2s;
                         `}
 					},
-					children: [
-						{
-							type: "text",
-							text: "⏪ 15s"
-						}
-					]
+					children: [{ type: "text", text: "⏪ 15s" }]
 				},
 				{
 					type: "element",
@@ -111,18 +161,14 @@ module-type: parser
                             transition: background-color 0.2s;
                         `}
 					},
-					children: [
-						{
-							type: "text",
-							text: "15s ⏩"
-						}
-					]
+					children: [{ type: "text", text: "15s ⏩" }]
 				}
 			]
 		};
 
 		const audioElement = element.children[1];
 		if (options._canonical_uri) {
+			Debug.log('Using canonical URI', options._canonical_uri);
 			audioElement.children = [{
 				type: "element",
 				tag: "source",
@@ -132,6 +178,7 @@ module-type: parser
 				}
 			}];
 		} else if (text) {
+			Debug.log('Using base64 text data');
 			audioElement.attributes.src = {
 				type: "string",
 				value: "data:" + type + ";base64," + text
@@ -140,18 +187,24 @@ module-type: parser
 
 		if ($tw.browser) {
 			$tw.hooks.addHook("th-page-refreshed", function () {
+				Debug.log('Page refresh detected');
+
 				setTimeout(function () {
 					const wrappers = document.getElementsByClassName("audio-wrapper");
+					Debug.log(`Found ${wrappers.length} audio wrappers`);
 
 					Array.from(wrappers).forEach(function (wrapper) {
 						const audio = wrapper.querySelector('.tw-audio-element');
 						const backButton = wrapper.querySelector('.skip-backward');
 						const forwardButton = wrapper.querySelector('.skip-forward');
 
+						Debug.state(audio);
+
 						if (!audio.dataset.initialized) {
+							Debug.log('Initializing audio element');
 							audio.dataset.initialized = "true";
 
-							// Button event listeners
+							// Skip functions
 							const skipBackward = () => {
 								audio.currentTime = Math.max(0, audio.currentTime - 15);
 							};
@@ -160,55 +213,61 @@ module-type: parser
 								audio.currentTime = Math.min(audio.duration, audio.currentTime + 15);
 							};
 
-							// Desktop events
-							backButton.addEventListener('click', function (e) {
+							// Button events
+							backButton.addEventListener('click', (e) => {
 								e.preventDefault();
 								skipBackward();
 							});
 
-							forwardButton.addEventListener('click', function (e) {
+							forwardButton.addEventListener('click', (e) => {
 								e.preventDefault();
 								skipForward();
 							});
 
 							// Mobile touch events
-							backButton.addEventListener('touchstart', function (e) {
-								e.preventDefault();
-								this.style.background = '#666666';
-								skipBackward();
-							});
-
-							forwardButton.addEventListener('touchstart', function (e) {
-								e.preventDefault();
-								this.style.background = '#666666';
-								skipForward();
+							['touchstart'].forEach(event => {
+								backButton.addEventListener(event, function (e) {
+									e.preventDefault();
+									this.style.background = '#666666';
+									skipBackward();
+								});
+								forwardButton.addEventListener(event, function (e) {
+									e.preventDefault();
+									this.style.background = '#666666';
+									skipForward();
+								});
 							});
 
 							// Button hover effects
 							['mouseenter', 'touchstart'].forEach(event => {
-								backButton.addEventListener(event, function () {
-									this.style.background = '#666666';
+								backButton.addEventListener(event, () => {
+									backButton.style.background = '#666666';
 								});
-								forwardButton.addEventListener(event, function () {
-									this.style.background = '#666666';
+								forwardButton.addEventListener(event, () => {
+									forwardButton.style.background = '#666666';
 								});
 							});
 
 							['mouseleave', 'touchend'].forEach(event => {
-								backButton.addEventListener(event, function () {
-									this.style.background = '#4a4a4a';
+								backButton.addEventListener(event, () => {
+									backButton.style.background = '#4a4a4a';
 								});
-								forwardButton.addEventListener(event, function () {
-									this.style.background = '#4a4a4a';
+								forwardButton.addEventListener(event, () => {
+									forwardButton.style.background = '#4a4a4a';
 								});
 							});
 
-							// Media Session API for Android controls
+							// Media Session API
 							if ('mediaSession' in navigator) {
-								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
-								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
 								navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
 								navigator.mediaSession.setActionHandler('seekforward', skipForward);
+
+								// Add position state to show skip intervals
+								navigator.mediaSession.setPositionState({
+									duration: audio.duration,
+									playbackRate: audio.playbackRate,
+									position: audio.currentTime
+								});
 
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
@@ -223,34 +282,30 @@ module-type: parser
 									});
 								});
 							}
-
-							// Original event listeners for playback position
+							
+							// Playback position events
 							audio.addEventListener('play', function () {
+								Debug.log('Play event triggered');
 								const currentTiddler = this.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
 									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
 										?.fields[getAudioTimestampField(this)];
 									if (savedTime && this.currentTime < 0.1) {
+										Debug.log(`Restoring saved time: ${savedTime}`);
 										this.currentTime = parseFloat(savedTime);
 									}
 								}
 							});
 
 							audio.addEventListener('pause', function () {
+								Debug.log('Pause event triggered');
 								const currentTiddler = this.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
-									if (tiddler) {
-										$tw.wiki.addTiddler(
-											new $tw.Tiddler(
-												tiddler,
-												{ [getAudioTimestampField(this)]: this.currentTime.toString() }
-											),
-											{ suppressUpdate: true, quiet: true, dontNotify: true }
-										);
-									}
+									BatchedUpdates.queue(tiddlerTitle, {
+										[getAudioTimestampField(this)]: this.currentTime.toString()
+									});
 								}
 							});
 
@@ -263,30 +318,24 @@ module-type: parser
 									const currentTiddler = this.closest('[data-tiddler-title]');
 									if (currentTiddler) {
 										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-										const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
-										if (tiddler) {
-											this.lastSavedTime = this.currentTime;
-											this.lastUpdateTime = Date.now();
+										this.lastSavedTime = this.currentTime;
+										this.lastUpdateTime = Date.now();
 
-											$tw.wiki.addTiddler(
-												new $tw.Tiddler(
-													tiddler,
-													{ [getAudioTimestampField(this)]: this.currentTime.toString() }
-												),
-												{ suppressUpdate: true, quiet: true, dontNotify: true }
-											);
-										}
+										BatchedUpdates.queue(tiddlerTitle, {
+											[getAudioTimestampField(this)]: this.currentTime.toString()
+										});
 									}
 								}
 							});
 
 							audio.addEventListener('error', function () {
+								Debug.error('Audio error occurred');
 								if (this.src.startsWith('blob:')) {
 									URL.revokeObjectURL(this.src);
 								}
 							});
 
-							// Load audio with retry support
+							// Load audio with retry
 							const loadAudio = function (retryCount = 0) {
 								const xhr = new XMLHttpRequest();
 								xhr.open('GET', audio.currentSrc, true);
@@ -313,6 +362,7 @@ module-type: parser
 											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
 												?.fields[getAudioTimestampField(audio)];
 											if (savedTime) {
+												Debug.log(`Restoring saved time: ${savedTime}`);
 												audio.currentTime = parseFloat(savedTime);
 											}
 										}
