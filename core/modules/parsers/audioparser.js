@@ -262,13 +262,7 @@ module-type: parser
 								navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
 								navigator.mediaSession.setActionHandler('seekforward', skipForward);
 
-								// Add position state to show skip intervals
-								navigator.mediaSession.setPositionState({
-									duration: audio.duration,
-									playbackRate: audio.playbackRate,
-									position: audio.currentTime
-								});
-
+								// Add metadata and position state after audio is loaded
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -280,9 +274,28 @@ module-type: parser
 										artist: 'TiddlyWiki Audio',
 										album: 'Audio Player'
 									});
+
+									// Set position state only after duration is available
+									if (audio.duration && !isNaN(audio.duration)) {
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											playbackRate: audio.playbackRate,
+											position: audio.currentTime
+										});
+									}
+								});
+
+								// Update position state during playback
+								audio.addEventListener('timeupdate', function () {
+									if (audio.duration && !isNaN(audio.duration)) {
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											playbackRate: audio.playbackRate,
+											position: audio.currentTime
+										});
+									}
 								});
 							}
-							
 							// Playback position events
 							audio.addEventListener('play', function () {
 								Debug.log('Play event triggered');
