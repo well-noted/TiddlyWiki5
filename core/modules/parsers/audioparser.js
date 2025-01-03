@@ -259,15 +259,32 @@ module-type: parser
 
 							// Media Session API
 							if ('mediaSession' in navigator) {
-								// Set up basic controls
+								// Set up basic controls with consistent state updates
+								const updateMediaState = () => {
+									if (!audio.duration || isNaN(audio.duration)) return;
+
+									try {
+										// Always update both state and position together
+										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate || 1.0
+										});
+									} catch (error) {
+										Debug.warn('Failed to update media session state', error);
+									}
+								};
+
+								// Set up play/pause handlers that use the same update method
 								navigator.mediaSession.setActionHandler('play', () => {
 									audio.play();
-									updateMediaState(); // Force immediate update on play
+									updateMediaState(); // Use same update method for both
 								});
 
 								navigator.mediaSession.setActionHandler('pause', () => {
 									audio.pause();
-									updateMediaState(); // Force immediate update on pause
+									updateMediaState(); // Use same update method for both
 								});
 
 								// Set up skip controls
@@ -287,36 +304,17 @@ module-type: parser
 										album: 'Audio Player'
 									});
 
-									updateMediaState(); // Force initial state
+									updateMediaState(); // Initial state
 								});
 
-								// Function to update media state
-								const updateMediaState = () => {
-									if (!audio.duration || isNaN(audio.duration)) return;
-
-									try {
-										// Force position state update first
-										navigator.mediaSession.setPositionState({
-											duration: audio.duration,
-											position: audio.currentTime,
-											playbackRate: audio.playbackRate || 1.0
-										});
-
-										// Then update playback state
-										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
-									} catch (error) {
-										Debug.warn('Failed to update media session state', error);
-									}
-								};
-
-								// Update more frequently during playback
+								// Update during playback using same method
 								audio.addEventListener('timeupdate', () => {
 									if (!audio.paused) {
 										updateMediaState();
 									}
 								});
 
-								// Always update on these events
+								// Use same update method for all events
 								['play', 'pause', 'seeking', 'seeked'].forEach(event => {
 									audio.addEventListener(event, updateMediaState);
 								});
