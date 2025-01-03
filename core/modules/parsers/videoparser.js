@@ -35,7 +35,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 	// Add performance monitoring and cache management
 	const MEMORY_LIMIT = 100 * 1024 * 1024; // 100MB limit
 	const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
-	const BUFFER_AHEAD = 3; 
+	const BUFFER_AHEAD = 3;
 
 	class ChunkCache {
 		constructor() {
@@ -84,10 +84,10 @@ The video parser parses a video tiddler into an embeddable HTML element
 	const MIN_BUFFER_SIZE = 2; // 2 seconds minimum buffer
 	const INITIAL_SEGMENT_DURATION = 4; // 4 second segments
 	const QUALITY_LEVELS = [
-		{width: 1920, height: 1080, bitrate: 5000000},
-		{width: 1280, height: 720, bitrate: 2500000},
-		{width: 854, height: 480, bitrate: 1000000},
-		{width: 640, height: 360, bitrate: 500000}
+		{ width: 1920, height: 1080, bitrate: 5000000 },
+		{ width: 1280, height: 720, bitrate: 2500000 },
+		{ width: 854, height: 480, bitrate: 1000000 },
+		{ width: 640, height: 360, bitrate: 500000 }
 	];
 
 	var VideoParser = function (type, text, options) {
@@ -133,7 +133,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 							function saveTimestamp() {
 								if (isInitializing) return;
-								
+
 								const currentTiddler = video.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
@@ -145,7 +145,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 											lastSaveTimestamp = Date.now();
 											$tw.wiki.addTiddler(new $tw.Tiddler(
 												tiddler,
-												{[getVideoTimestampField(video)]: currentTime.toString()}
+												{ [getVideoTimestampField(video)]: currentTime.toString() }
 											));
 											debugLog('Timestamp', `Saved position: ${currentTime}s`);
 										}
@@ -165,7 +165,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 							xhr.open('GET', video.currentSrc);
 							xhr.responseType = 'blob';
 
-							xhr.onprogress = function(e) {
+							xhr.onprogress = function (e) {
 								if (e.lengthComputable) {
 									const progress = (e.loaded / e.total * 100).toFixed(2);
 									debugLog('Progress', `Loading: ${progress}%`);
@@ -176,15 +176,15 @@ The video parser parses a video tiddler into an embeddable HTML element
 								}
 							};
 
-							xhr.onload = function() {
+							xhr.onload = function () {
 								if (xhr.status === 200) {
 									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 									const url = URL.createObjectURL(blob);
 									video.src = url;
 									debugLog('Load', 'Video data received');
-									
+
 									// Add timestamp restoration
-									video.addEventListener('loadedmetadata', function() {
+									video.addEventListener('loadedmetadata', function () {
 										debugLog('Metadata', 'Video metadata loaded');
 										const currentTiddler = video.closest('[data-tiddler-title]');
 										if (currentTiddler) {
@@ -198,12 +198,12 @@ The video parser parses a video tiddler into an embeddable HTML element
 										}
 										isInitializing = false;
 										overlay.style.display = 'none';
-									}, {once: true});
+									}, { once: true });
 
 									video.addEventListener('pause', saveTimestamp);
 									video.addEventListener('seeked', saveTimestamp);
-									
-									video.addEventListener('timeupdate', function() {
+
+									video.addEventListener('timeupdate', function () {
 										if (!isInitializing && Date.now() - lastSaveTimestamp > 1000) {
 											saveTimestamp();
 										}
@@ -214,7 +214,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 								}
 							};
 
-							xhr.onerror = function() {
+							xhr.onerror = function () {
 								debugLog('Error', `Network error loading video`);
 								overlay.innerHTML = 'Error loading video';
 							};
@@ -239,11 +239,11 @@ The video parser parses a video tiddler into an embeddable HTML element
 				if (!chunkCache.has(chunkKey)) {
 					const start = i * dynamicChunkSize;
 					const end = start + dynamicChunkSize;
-					
+
 					const response = await fetch(src, {
 						headers: { 'Range': `bytes=${start}-${end}` }
 					});
-					
+
 					if (response.ok) {
 						const chunk = await response.arrayBuffer();
 						chunkCache.set(chunkKey, chunk);
@@ -266,7 +266,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 				isBuffered: false
 			};
 		}
-		
+
 		return {
 			bufferEnd: buffered.end(buffered.length - 1),
 			bufferStart: buffered.start(buffered.length - 1),
@@ -278,14 +278,14 @@ The video parser parses a video tiddler into an embeddable HTML element
 	async function fetchVideoSegment(src, startTime, duration, quality) {
 		const start = Math.floor(startTime * quality.bitrate / 8);
 		const end = Math.floor((startTime + duration) * quality.bitrate / 8);
-		
+
 		try {
 			const response = await fetch(src, {
 				headers: {
 					Range: `bytes=${start}-${end}`
 				}
 			});
-			
+
 			if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 			return await response.arrayBuffer();
 		} catch (error) {
