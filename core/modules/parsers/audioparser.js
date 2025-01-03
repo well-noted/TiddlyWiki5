@@ -283,58 +283,56 @@ module-type: parser
 								});
 
 								// Function to update media state
-                                const updateMediaState = () => {
-                                    if (!audio.duration || isNaN(audio.duration)) return;
+								const updateMediaState = () => {
+									if (!audio.duration || isNaN(audio.duration)) return;
 
-                                    try {
-                                        // Convert time to milliseconds for Android
-                                        const positionMs = Math.floor(audio.currentTime * 1000);
-                                        const durationMs = Math.floor(audio.duration * 1000);
+									try {
+										// Convert time to milliseconds for Android
+										const positionMs = Math.floor(audio.currentTime * 1000);
 
-                                        // Set both state and position
-                                        navigator.mediaSession.setState(
-                                            audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
-                                            positionMs,
-                                            audio.paused ? 0 : 1.0,
-                                            durationMs
-                                        );
+										// Set both state and position
+										navigator.mediaSession.setState(
+											audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
+											positionMs,
+											audio.paused ? 0 : 1.0
+										);
 
-                                        // Update position state
-                                        navigator.mediaSession.setPositionState({
-                                            duration: audio.duration,
-                                            position: audio.currentTime,
-                                            playbackRate: audio.playbackRate
-                                        });
-                                    } catch (error) {
-                                        Debug.warn('Failed to update media session state', error);
-                                    }
-                                };
+										// Update position state
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate
+										});
+									} catch (error) {
+										Debug.warn('Failed to update media session state', error);
+									}
+								};
 
-                                let animationFrameId;
-                                
-                                const updateLoop = () => {
-                                    if (!audio.paused) {
-                                        updateMediaState();
-                                        animationFrameId = requestAnimationFrame(updateLoop);
-                                    }
-                                };
+								let animationFrameId;
 
-                                // Update during playback
-                                audio.addEventListener('play', () => {
-                                    updateLoop();
-                                });
+								const updateLoop = () => {
+									if (!audio.paused) {
+										updateMediaState();
+										animationFrameId = requestAnimationFrame(updateLoop);
+									}
+								};
 
-                                audio.addEventListener('pause', () => {
-                                    if (animationFrameId) {
-                                        cancelAnimationFrame(animationFrameId);
-                                    }
-                                    updateMediaState();
-                                });
+								// Update during playback
+								audio.addEventListener('play', () => {
+									updateLoop();
+								});
 
-                                // Handle state changes
-                                ['seeking', 'seeked'].forEach(event => {
-                                    audio.addEventListener(event, updateMediaState);
-                                });
+								audio.addEventListener('pause', () => {
+									if (animationFrameId) {
+										cancelAnimationFrame(animationFrameId);
+									}
+									updateMediaState();
+								});
+
+								// Handle state changes
+								['seeking', 'seeked'].forEach(event => {
+									audio.addEventListener(event, updateMediaState);
+								});
 							}
 							
 							// Playback position events
