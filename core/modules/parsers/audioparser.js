@@ -259,11 +259,15 @@ module-type: parser
 
 							// Media Session API
 							if ('mediaSession' in navigator) {
+								// Set up basic controls
+								navigator.mediaSession.setActionHandler('play', () => audio.play());
+								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+
+								// Set up skip controls - using previoustrack/nexttrack for better compatibility
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
 								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
-								navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
-								navigator.mediaSession.setActionHandler('seekforward', skipForward);
 
+								// Update metadata when loaded
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -275,6 +279,22 @@ module-type: parser
 										artist: 'TiddlyWiki Audio',
 										album: 'Audio Player'
 									});
+								});
+
+								// Simple position state updates
+								const updatePositionState = () => {
+									if (!audio.duration || isNaN(audio.duration)) return;
+
+									try {
+										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+									} catch (error) {
+										Debug.warn('Failed to update playback state', error);
+									}
+								};
+
+								// Update on all relevant events
+								['play', 'pause', 'timeupdate', 'seeking', 'seeked'].forEach(event => {
+									audio.addEventListener(event, updatePositionState);
 								});
 							}
 
