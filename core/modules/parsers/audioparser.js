@@ -287,17 +287,19 @@ module-type: parser
 									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
-										// Convert time to milliseconds for Android
 										const positionMs = Math.floor(audio.currentTime * 1000);
+										const durationMs = Math.floor(audio.duration * 1000);
+										
+										Debug.log(`Updating media state - Position: ${positionMs}ms, Duration: ${durationMs}ms`);
 
-										// Set both state and position
+										// Include duration in setState
 										navigator.mediaSession.setState(
 											audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
 											positionMs,
-											audio.paused ? 0 : 1.0
+											audio.paused ? 0 : 1.0,
+											durationMs  // Add duration parameter
 										);
 
-										// Update position state
 										navigator.mediaSession.setPositionState({
 											duration: audio.duration,
 											position: audio.currentTime,
@@ -307,6 +309,9 @@ module-type: parser
 										Debug.warn('Failed to update media session state', error);
 									}
 								};
+
+								// Add timeupdate listener as backup
+								audio.addEventListener('timeupdate', updateMediaState);
 
 								let animationFrameId;
 
@@ -318,19 +323,14 @@ module-type: parser
 								};
 
 								// Update during playback
-								audio.addEventListener('play', () => {
-									updateLoop();
-								});
-
-								audio.addEventListener('pause', () => {
-									if (animationFrameId) {
-										cancelAnimationFrame(animationFrameId);
+								audio.addEventListener('timeupdate', () => {
+									if (!audio.paused) {
+										updateMediaState();
 									}
-									updateMediaState();
 								});
 
-								// Handle state changes
-								['seeking', 'seeked'].forEach(event => {
+								// Handle all state changes
+								['play', 'pause', 'seeking', 'seeked'].forEach(event => {
 									audio.addEventListener(event, updateMediaState);
 								});
 							}
