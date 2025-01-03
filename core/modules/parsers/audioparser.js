@@ -257,13 +257,14 @@ module-type: parser
 								});
 							});
 
+
 							// Media Session API
 							if ('mediaSession' in navigator) {
 								// Set up basic controls
 								navigator.mediaSession.setActionHandler('play', () => audio.play());
 								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
 
-								// Set up skip controls - using previoustrack/nexttrack for better compatibility
+								// Set up skip controls using previoustrack/nexttrack
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
 								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
 
@@ -281,21 +282,32 @@ module-type: parser
 									});
 								});
 
-								// Simple position state updates
-								const updatePositionState = () => {
+								// Update playback state and position
+								const updatePlaybackState = () => {
 									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
+										// Set playback state
 										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+
+										// Update position state with current values
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate || 1.0
+										});
 									} catch (error) {
-										Debug.warn('Failed to update playback state', error);
+										Debug.warn('Failed to update media session state', error);
 									}
 								};
 
 								// Update on all relevant events
 								['play', 'pause', 'timeupdate', 'seeking', 'seeked'].forEach(event => {
-									audio.addEventListener(event, updatePositionState);
+									audio.addEventListener(event, updatePlaybackState);
 								});
+
+								// Initial state update
+								audio.addEventListener('loadedmetadata', updatePlaybackState);
 							}
 
 							// Playback position events
