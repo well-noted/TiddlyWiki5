@@ -258,43 +258,56 @@ module-type: parser
 							});
 
 							if ('mediaSession' in navigator) {
-								// Single function to update media state with validation
-								const updateMediaState = (isPlaying) => {
-									if (!audio.duration || isNaN(audio.duration) || isNaN(audio.currentTime)) return;
+								let lastKnownPosition = 0;
+
+								// Separate position update function
+								const updatePosition = () => {
+									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
-										navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 										navigator.mediaSession.setPositionState({
 											duration: audio.duration,
-											position: audio.currentTime,
+											position: lastKnownPosition,
 											playbackRate: audio.playbackRate || 1.0
 										});
 									} catch (error) {
-										Debug.warn('Failed to update media session state', error);
+										Debug.warn('Failed to update position state', error);
 									}
 								};
 
-								// Enhanced play handler with async/await
-								navigator.mediaSession.setActionHandler('play', async () => {
+								// State update function
+								const updatePlaybackState = (isPlaying) => {
 									try {
-										await audio.play();
-										updateMediaState(true);
+										navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 									} catch (error) {
-										Debug.warn('Failed to play audio', error);
+										Debug.warn('Failed to update playback state', error);
 									}
+								};
+
+								// Play handler
+								navigator.mediaSession.setActionHandler('play', () => {
+									audio.play().then(() => {
+										lastKnownPosition = audio.currentTime;
+										updatePlaybackState(true);
+										updatePosition();
+									}).catch(error => {
+										Debug.warn('Failed to play audio', error);
+									});
 								});
 
-								// Pause handler remains simple
+								// Pause handler
 								navigator.mediaSession.setActionHandler('pause', () => {
 									audio.pause();
-									updateMediaState(false);
+									lastKnownPosition = audio.currentTime;
+									updatePlaybackState(false);
+									updatePosition();
 								});
 
-								// Skip controls remain unchanged
+								// Skip controls
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
 								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
 
-								// Metadata handler with improved validation
+								// Metadata handler
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -307,21 +320,26 @@ module-type: parser
 										album: 'Audio Player'
 									});
 
-									updateMediaState(false);
+									lastKnownPosition = 0;
+									updatePlaybackState(false);
+									updatePosition();
 								});
 
-								// Play/pause event listeners
+								// Track position updates
+								audio.addEventListener('timeupdate', () => {
+									lastKnownPosition = audio.currentTime;
+									if (!audio.paused) {
+										updatePosition();
+									}
+								});
+
+								// Handle play/pause events
 								['play', 'pause'].forEach(event => {
 									audio.addEventListener(event, () => {
-										updateMediaState(!audio.paused);
+										lastKnownPosition = audio.currentTime;
+										updatePlaybackState(!audio.paused);
+										updatePosition();
 									});
-								});
-
-								// Enhanced timeupdate listener with validation
-								audio.addEventListener('timeupdate', () => {
-									if (!audio.paused && !isNaN(audio.currentTime)) {
-										updateMediaState(true);
-									}
 								});
 							}
 							
