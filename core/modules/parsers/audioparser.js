@@ -84,8 +84,8 @@ module-type: parser
 
 	function getAudioTimestampField(audio) {
 		const sourceElement = audio.querySelector('source');
-		let originalSrc = sourceElement ?
-			sourceElement.getAttribute('src') :
+		let originalSrc = sourceElement ? 
+			sourceElement.getAttribute('src') : 
 			audio.getAttribute('src');
 
 		let hash = 5381;
@@ -293,35 +293,52 @@ module-type: parser
 								// Set up basic controls
 								navigator.mediaSession.setActionHandler('play', () => {
 									audio.play();
-									updateMediaState(PlaybackState.PLAYING);
+									updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
+									startPositionUpdates();
 								});
 
 								navigator.mediaSession.setActionHandler('pause', () => {
 									audio.pause();
-									updateMediaState(PlaybackState.PAUSED);
+									updateMediaState(PlaybackState.PAUSED, audio.currentTime * 1000);
+									stopPositionUpdates();
 								});
+
+								let positionUpdateInterval;
+
+								function startPositionUpdates() {
+									stopPositionUpdates(); // Clear any existing interval
+									positionUpdateInterval = setInterval(() => {
+										if (!audio.paused) {
+											updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
+										}
+									}, 250); // Update 4 times per second
+								}
+
+								function stopPositionUpdates() {
+									if (positionUpdateInterval) {
+										clearInterval(positionUpdateInterval);
+										positionUpdateInterval = null;
+									}
+								}
 
 								// Update state on all relevant events
 								['play', 'pause'].forEach(event => {
 									audio.addEventListener(event, () => {
-										updateMediaState(audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING);
+										if (audio.paused) {
+											updateMediaState(PlaybackState.PAUSED, audio.currentTime * 1000);
+											stopPositionUpdates();
+										} else {
+											updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
+											startPositionUpdates();
+										}
 									});
 								});
 
-								// Update during playback
+								// We can remove or keep the timeupdate listener as backup
 								audio.addEventListener('timeupdate', () => {
 									if (!audio.paused) {
 										updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
 									}
-								});
-
-								// Handle seeking states
-								audio.addEventListener('seeking', () => updateMediaState(PlaybackState.BUFFERING, audio.currentTime * 1000));
-								audio.addEventListener('seeked', () => {
-									updateMediaState(
-										audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
-										audio.currentTime * 1000
-									);
 								});
 							}
 							
