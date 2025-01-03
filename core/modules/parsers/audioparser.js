@@ -259,41 +259,40 @@ module-type: parser
 
 							// Media Session API
 							if ('mediaSession' in navigator) {
-								// Register all possible seek actions
-								const seekActions = [
-									['seekbackward', skipBackward],
-									['seekforward', skipForward],
-									['seekto', (details) => {
-										if (details.seekTime !== undefined) {
-											audio.currentTime = details.seekTime;
-										}
-									}]
-								];
+								// Set up basic controls first
+								navigator.mediaSession.setActionHandler('play', () => audio.play());
+								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
 
-								seekActions.forEach(([action, handler]) => {
-									try {
-										navigator.mediaSession.setActionHandler(action, handler);
-									} catch (error) {
-										Debug.warn(`Failed to set media session action: ${action}`, error);
-									}
-								});
+								// Set up skip controls using the original actions
+								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
+								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
 
-								// Update position state whenever time changes
+								// Also set up seek controls as fallback
+								try {
+									navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
+									navigator.mediaSession.setActionHandler('seekforward', skipForward);
+								} catch (error) {
+									Debug.warn('Seek controls not supported', error);
+								}
+
+								// Update metadata and position state
 								const updatePositionState = () => {
-									if (audio.duration && !isNaN(audio.duration)) {
-										try {
+									try {
+										if (!audio.duration || isNaN(audio.duration)) return;
+
+										// Only update position state if we're actually playing
+										if (!audio.paused) {
 											navigator.mediaSession.setPositionState({
 												duration: audio.duration,
-												playbackRate: audio.playbackRate,
-												position: audio.currentTime
+												position: audio.currentTime,
+												playbackRate: audio.playbackRate
 											});
-										} catch (error) {
-											Debug.warn('Failed to update position state', error);
 										}
+									} catch (error) {
+										Debug.warn('Failed to update position state', error);
 									}
 								};
 
-								// Set up metadata and initial position state
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -313,8 +312,6 @@ module-type: parser
 								audio.addEventListener('timeupdate', updatePositionState);
 								audio.addEventListener('play', updatePositionState);
 								audio.addEventListener('pause', updatePositionState);
-								audio.addEventListener('seeking', updatePositionState);
-								audio.addEventListener('seeked', updatePositionState);
 							}
 							
 							// Playback position events
