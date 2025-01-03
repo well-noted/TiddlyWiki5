@@ -258,35 +258,39 @@ module-type: parser
 							});
 
 							if ('mediaSession' in navigator) {
-								// Android MediaSession states
+								// Android MediaSession playback states
 								const PlaybackState = {
 									NONE: 0,
 									STOPPED: 1,
 									PLAYING: 2,
 									PAUSED: 3,
-									BUFFERING: 6
+									FAST_FORWARDING: 4,
+									REWINDING: 5,
+									BUFFERING: 6,
+									ERROR: 7
 								};
 
-								// Single function to update media state
+								// Function to update both state and position together
 								const updateMediaState = (state) => {
 									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
 										// Convert time to milliseconds for Android
 										const positionMs = Math.floor(audio.currentTime * 1000);
+										const durationMs = Math.floor(audio.duration * 1000);
 
-										// Set state with position in milliseconds
-										navigator.mediaSession.setState(
-											state,
-											positionMs,
-											state === PlaybackState.PAUSED ? 0 : 1.0
-										);
+										// Set both state and position together
+										navigator.mediaSession.setState(state, positionMs, audio.playbackRate);
+
+										// Update metadata state
+										navigator.mediaSession.playbackState =
+											state === PlaybackState.PLAYING ? "playing" : "paused";
 									} catch (error) {
 										Debug.warn('Failed to update media session state', error);
 									}
 								};
 
-								// Use the same update function for both play and pause
+								// Set up basic controls
 								navigator.mediaSession.setActionHandler('play', () => {
 									audio.play();
 									updateMediaState(PlaybackState.PLAYING);
@@ -297,21 +301,24 @@ module-type: parser
 									updateMediaState(PlaybackState.PAUSED);
 								});
 
-								// Update during playback using same function
+								// Update state on all relevant events
+								['play', 'pause'].forEach(event => {
+									audio.addEventListener(event, () => {
+										updateMediaState(audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING);
+									});
+								});
+
+								// Update during playback
 								audio.addEventListener('timeupdate', () => {
 									if (!audio.paused) {
 										updateMediaState(PlaybackState.PLAYING);
 									}
 								});
 
-								// Handle all state changes with same function
-								['play', 'pause'].forEach(event => {
-									audio.addEventListener(event, () => {
-										updateMediaState(audio.paused ?
-											PlaybackState.PAUSED :
-											PlaybackState.PLAYING
-										);
-									});
+								// Handle seeking states
+								audio.addEventListener('seeking', () => updateMediaState(PlaybackState.BUFFERING));
+								audio.addEventListener('seeked', () => {
+									updateMediaState(audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING);
 								});
 							}
 							
