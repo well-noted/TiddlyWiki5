@@ -257,11 +257,18 @@ module-type: parser
 								});
 							});
 
-							// Media Session API - simplified version
+							// Media Session API
 							if ('mediaSession' in navigator) {
 								// Set up basic controls
-								navigator.mediaSession.setActionHandler('play', () => audio.play());
-								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+								navigator.mediaSession.setActionHandler('play', () => {
+									audio.play();
+									navigator.mediaSession.playbackState = "playing";
+								});
+
+								navigator.mediaSession.setActionHandler('pause', () => {
+									audio.pause();
+									navigator.mediaSession.playbackState = "paused";
+								});
 
 								// Set up skip controls
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
@@ -279,15 +286,45 @@ module-type: parser
 										artist: 'TiddlyWiki Audio',
 										album: 'Audio Player'
 									});
+
+									// Set initial position state
+									if (audio.duration && !isNaN(audio.duration)) {
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate || 1
+										});
+									}
 								});
 
-								// Only update playback state
-								audio.addEventListener('play', () => {
-									navigator.mediaSession.playbackState = "playing";
+								// Update position state frequently during playback
+								const updatePositionState = () => {
+									if (!audio.duration || isNaN(audio.duration)) return;
+
+									try {
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate || 1
+										});
+									} catch (error) {
+										Debug.warn('Failed to update position state', error);
+									}
+								};
+
+								// Update position state more frequently during playback
+								audio.addEventListener('timeupdate', () => {
+									if (!audio.paused) {
+										updatePositionState();
+									}
 								});
 
-								audio.addEventListener('pause', () => {
-									navigator.mediaSession.playbackState = "paused";
+								// Always update on these events
+								['play', 'pause', 'seeking', 'seeked'].forEach(event => {
+									audio.addEventListener(event, () => {
+										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+										updatePositionState();
+									});
 								});
 							}
 							
