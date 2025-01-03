@@ -26,20 +26,10 @@
 	position: absolute !important;
 	top: 8px !important;
 	right: 8px !important;
-	background: none !important;
-	border: none !important;
-	color: rgba(255, 255, 255, 0.4) !important;
-	cursor: pointer !important;
-	padding: 4px !important;
-	font-size: 12px !important;
-	line-height: 1 !important;
-	width: 16px !important;
-	height: 16px !important;
-	display: flex !important;
-	align-items: center !important;
-	justify-content: center !important;
-	border-radius: 50% !important;
-	transition: color 0.2s !important;
+	left: auto !important;
+	/* Ensure left isn't overriding right */
+	transform: none !important;
+	/* Prevent any transform from affecting position */
 }
 
 .close-button:hover {

@@ -9,6 +9,7 @@ module-type: library
 
 	class AudioControls {
 		constructor() {
+			console.log("AudioControls: Initializing...");
 			this.createOverlay();
 			this.initializeMediaSession();
 			this.attachEventListeners();
@@ -73,8 +74,27 @@ module-type: library
 			};
 
 			// Add close button handler
-			this.elements.closeButton.addEventListener('click', () => {
+			this.elements.closeButton.addEventListener('click', (e) => {
+				console.log("Close button clicked");
+				console.log("Overlay classList before:", this.overlay.classList.toString());
+				console.log("Current audio state:", this.currentAudio?.paused);
+
+				if (this.currentAudio) {
+					this.currentAudio.pause();
+				}
+
 				this.overlay.classList.remove('active');
+				console.log("Overlay classList after:", this.overlay.classList.toString());
+
+				// Force a reflow
+				void this.overlay.offsetWidth;
+
+				// Double-check if class was removed
+				if (this.overlay.classList.contains('active')) {
+					console.warn("Active class still present after removal attempt");
+					// Force remove again
+					this.overlay.classList.remove('active');
+				}
 			});
 
 			// Add continuous time updates
@@ -133,8 +153,10 @@ module-type: library
 			this.elements.playButton.addEventListener('click', () => {
 				if (this.currentAudio?.paused) {
 					this.currentAudio.play();
+					this.elements.playButton.innerHTML = '⏸️';
 				} else {
 					this.currentAudio?.pause();
+					this.elements.playButton.innerHTML = '▶️';
 				}
 			});
 
@@ -164,18 +186,25 @@ module-type: library
 		}
 
 		setupAudioElement(audio) {
+			console.log("Setting up new audio element");
+
 			audio.addEventListener('play', () => {
+				console.log("Audio play event triggered");
+				console.log("Audio source:", audio.currentSrc);
 				this.currentAudio = audio;
 				this.updateOverlay();
 				this.overlay.classList.add('active');
 				if (this.elements.playButton) {
-					this.elements.playButton.textContent = '⏸️';
+					console.log("Updating play button to pause");
+					this.elements.playButton.innerHTML = '⏸️';
 				}
 			});
 
 			audio.addEventListener('pause', () => {
+				console.log("Audio pause event triggered");
 				if (this.elements.playButton) {
-					this.elements.playButton.textContent = '▶️';
+					console.log("Updating play button to play");
+					this.elements.playButton.innerHTML = '▶️';
 				}
 			});
 

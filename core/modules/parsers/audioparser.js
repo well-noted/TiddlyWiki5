@@ -187,65 +187,372 @@ module-type: parser
 		}
 
 		if ($tw.browser) {
+			// First, ensure AudioControls is initialized
 			$tw.hooks.addHook("th-page-refreshed", function () {
-				Debug.log('Page refresh detected - attempting to initialize AudioControls');
+				Debug.log('Page refresh detected - initializing AudioControls');
 
-				// First, check if AudioControls is already initialized
-				if (!window.audioControls) {
-					Debug.log('AudioControls not found, checking for tiddler');
+				// Get AudioControls from wiki store
+				const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
 
-					// Try to get the AudioControls code from the wiki
-					const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
+				if (audioControlsTiddler) {
+					Debug.log('Found AudioControls tiddler, attempting to initialize');
+					try {
+						// Execute the AudioControls code
+						const AudioControlsCode = audioControlsTiddler.fields.text;
+						(new Function(AudioControlsCode))();
 
-					if (audioControlsTiddler) {
-						Debug.log('Found AudioControls tiddler, executing code');
-						try {
-							// Execute the AudioControls code
-							const AudioControlsCode = audioControlsTiddler.fields.text;
-							(new Function('$tw', AudioControlsCode))($tw);
-
-							// Initialize AudioControls
-							if (typeof AudioControls !== 'undefined') {
-								Debug.log('Creating new AudioControls instance');
-								window.audioControls = new AudioControls();
-							} else {
-								Debug.error('AudioControls class not defined after execution');
-							}
-						} catch (e) {
-							Debug.error('Error initializing AudioControls:', e);
+						// Initialize AudioControls instance
+						if (!window.audioControls) {
+							Debug.log('Creating new AudioControls instance');
+							window.audioControls = new AudioControls();
+						} else {
+							Debug.log('AudioControls already initialized');
 						}
-					} else {
-						Debug.error('AudioControls tiddler not found in wiki');
+					} catch (e) {
+						Debug.error('Failed to initialize AudioControls:', e);
 					}
 				} else {
-					Debug.log('AudioControls already initialized');
+					Debug.error('AudioControls tiddler not found');
 				}
 
-				// Add play event listener to audio elements
+				// Then proceed with audio wrapper initialization
 				setTimeout(function () {
 					const wrappers = document.getElementsByClassName("audio-wrapper");
 					Debug.log(`Found ${wrappers.length} audio wrappers`);
 
 					Array.from(wrappers).forEach(function (wrapper) {
 						const audio = wrapper.querySelector('.tw-audio-element');
-						if (audio && !audio.dataset.initialized) {
+						const backButton = wrapper.querySelector('.skip-backward');
+						const forwardButton = wrapper.querySelector('.skip-forward');
+
+						Debug.state(audio);
+
+						if (!audio.dataset.initialized) {
+							Debug.log('Initializing audio element');
+							audio.dataset.initialized = "true";
+
+							// Add debug logging for AudioControls initialization
+							Debug.log('Checking AudioControls initialization status');
+							if (!window.audioControls) {
+								Debug.log('AudioControls not initialized, attempting to initialize');
+								const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
+								if (audioControlsTiddler) {
+									try {
+										Debug.log('Found AudioControls tiddler, executing code');
+										const AudioControlsCode = audioControlsTiddler.fields.text;
+										(new Function(AudioControlsCode))();
+										Debug.log('AudioControls code executed successfully');
+									} catch (e) {
+										Debug.error('Failed to initialize AudioControls:', e);
+									}
+								} else {
+									Debug.error('AudioControls tiddler not found');
+								}
+							} else {
+								Debug.log('AudioControls already initialized');
+							}
+
+							// Add extensive debug logging for play/pause events
 							audio.addEventListener('play', function () {
-								Debug.log('Audio play event triggered');
+								Debug.log('Play event triggered - attempting to show overlay');
+								Debug.log('AudioControls status:', window.audioControls ? 'exists' : 'not found');
+
 								if (window.audioControls) {
-									Debug.log('Updating AudioControls with current audio');
+									Debug.log('Setting current audio and updating overlay');
 									window.audioControls.currentAudio = this;
 									window.audioControls.updateOverlay();
+
 									const overlay = document.getElementById('audio-controls-overlay');
+									Debug.log('Overlay element:', overlay ? 'found' : 'not found');
+
 									if (overlay) {
-										Debug.log('Showing overlay');
+										Debug.log('Adding active class to overlay');
 										overlay.classList.add('active');
+										Debug.log('Overlay classes after addition:', overlay.classList.toString());
 									} else {
-										Debug.error('Overlay element not found');
+										Debug.error('Audio controls overlay element not found');
 									}
 								} else {
 									Debug.error('AudioControls not initialized during play event');
 								}
 							});
+
+							audio.addEventListener('pause', function () {
+								Debug.log('Pause event triggered - attempting to hide overlay');
+								const overlay = document.getElementById('audio-controls-overlay');
+								Debug.log('Overlay element:', overlay ? 'found' : 'not found');
+
+								if (overlay) {
+									Debug.log('Removing active class from overlay');
+									overlay.classList.remove('active');
+									Debug.log('Overlay classes after removal:', overlay.classList.toString());
+								} else {
+									Debug.error('Audio controls overlay element not found during pause');
+								}
+							});
+
+							// Add debug logging for overlay state changes
+							const observeOverlay = new MutationObserver((mutations) => {
+								mutations.forEach((mutation) => {
+									if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+										Debug.log('Overlay class changed:',
+											document.getElementById('audio-controls-overlay').classList.toString());
+									}
+								});
+							});
+
+							const overlay = document.getElementById('audio-controls-overlay');
+							if (overlay) {
+								Debug.log('Setting up overlay state observer');
+								observeOverlay.observe(overlay, { attributes: true });
+							}
+
+							// Skip functions
+							const skipBackward = () => {
+								audio.currentTime = Math.max(0, audio.currentTime - 15);
+							};
+
+							const skipForward = () => {
+								audio.currentTime = Math.min(audio.duration, audio.currentTime + 15);
+							};
+
+							// Button events
+							backButton.addEventListener('click', (e) => {
+								e.preventDefault();
+								skipBackward();
+							});
+
+							forwardButton.addEventListener('click', (e) => {
+								e.preventDefault();
+								skipForward();
+							});
+
+							// Mobile touch events
+							['touchstart'].forEach(event => {
+								backButton.addEventListener(event, function (e) {
+									e.preventDefault();
+									this.style.background = '#666666';
+									skipBackward();
+								});
+								forwardButton.addEventListener(event, function (e) {
+									e.preventDefault();
+									this.style.background = '#666666';
+									skipForward();
+								});
+							});
+
+							// Button hover effects
+							['mouseenter', 'touchstart'].forEach(event => {
+								backButton.addEventListener(event, () => {
+									backButton.style.background = '#666666';
+								});
+								forwardButton.addEventListener(event, () => {
+									forwardButton.style.background = '#666666';
+								});
+							});
+
+							['mouseleave', 'touchend'].forEach(event => {
+								backButton.addEventListener(event, () => {
+									backButton.style.background = '#4a4a4a';
+								});
+								forwardButton.addEventListener(event, () => {
+									forwardButton.style.background = '#4a4a4a';
+								});
+							});
+
+
+							// Media Session API
+							if ('mediaSession' in navigator) {
+								// Set up basic controls
+								navigator.mediaSession.setActionHandler('play', () => audio.play());
+								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+
+								// Set up skip controls using previoustrack/nexttrack
+								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
+								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
+
+								// Update metadata when loaded
+								audio.addEventListener('loadedmetadata', function () {
+									const currentTiddler = audio.closest('[data-tiddler-title]');
+									const title = currentTiddler ?
+										currentTiddler.getAttribute('data-tiddler-title') :
+										'Audio';
+
+									navigator.mediaSession.metadata = new MediaMetadata({
+										title: title,
+										artist: 'TiddlyWiki Audio',
+										album: 'Audio Player'
+									});
+								});
+
+								// Add these right after the Media Session API initialization
+								audio.addEventListener('play', function () {
+									Debug.log('Play event triggered - checking AudioControls');
+									if (!window.audioControls) {
+										Debug.log('AudioControls not found, attempting to initialize');
+										const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
+										if (audioControlsTiddler) {
+											try {
+												const AudioControlsCode = audioControlsTiddler.fields.text;
+												(new Function(AudioControlsCode))();
+												window.audioControls = new AudioControls();
+												Debug.log('AudioControls initialized successfully');
+											} catch (e) {
+												Debug.error('Failed to initialize AudioControls:', e);
+											}
+										}
+									}
+
+									if (window.audioControls) {
+										Debug.log('Setting current audio and showing overlay');
+										window.audioControls.currentAudio = this;
+										window.audioControls.updateOverlay();
+										const overlay = document.getElementById('audio-controls-overlay');
+										if (overlay) {
+											overlay.classList.add('active');
+											Debug.log('Overlay activated');
+										} else {
+											Debug.error('Overlay element not found');
+										}
+									}
+								});
+
+								audio.addEventListener('pause', function () {
+									Debug.log('Pause event triggered');
+									const overlay = document.getElementById('audio-controls-overlay');
+									if (overlay) {
+										overlay.classList.remove('active');
+										Debug.log('Overlay deactivated');
+									} else {
+										Debug.error('Overlay element not found');
+									}
+								});
+
+								// Update playback state and position
+								const updatePlaybackState = () => {
+									if (!audio.duration || isNaN(audio.duration)) return;
+
+									try {
+										// Set playback state
+										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+
+										// Update position state with current values
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate || 1.0
+										});
+									} catch (error) {
+										Debug.warn('Failed to update media session state', error);
+									}
+								};
+
+								// Update on all relevant events
+								['play', 'pause', 'timeupdate', 'seeking', 'seeked'].forEach(event => {
+									audio.addEventListener(event, updatePlaybackState);
+								});
+
+								// Initial state update
+								audio.addEventListener('loadedmetadata', updatePlaybackState);
+							}
+
+							// Playback position events
+							audio.addEventListener('play', function () {
+								Debug.log('Play event triggered');
+								const currentTiddler = this.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
+										?.fields[getAudioTimestampField(this)];
+									if (savedTime && this.currentTime < 0.1) {
+										Debug.log(`Restoring saved time: ${savedTime}`);
+										this.currentTime = parseFloat(savedTime);
+									}
+								}
+							});
+
+							audio.addEventListener('pause', function () {
+								Debug.log('Pause event triggered');
+								const currentTiddler = this.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									BatchedUpdates.queue(tiddlerTitle, {
+										[getAudioTimestampField(this)]: this.currentTime.toString()
+									});
+								}
+							});
+
+							audio.addEventListener('timeupdate', function () {
+								if (!this.seeking &&
+									(!this.lastUpdateTime ||
+										(Date.now() - this.lastUpdateTime > 5000 &&
+											Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+
+									const currentTiddler = this.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										this.lastSavedTime = this.currentTime;
+										this.lastUpdateTime = Date.now();
+
+										BatchedUpdates.queue(tiddlerTitle, {
+											[getAudioTimestampField(this)]: this.currentTime.toString()
+										});
+									}
+								}
+							});
+
+							audio.addEventListener('error', function () {
+								Debug.error('Audio error occurred');
+								if (this.src.startsWith('blob:')) {
+									URL.revokeObjectURL(this.src);
+								}
+							});
+
+							// Load audio with retry
+							const loadAudio = function (retryCount = 0) {
+								const xhr = new XMLHttpRequest();
+								xhr.open('GET', audio.currentSrc, true);
+								xhr.responseType = 'blob';
+
+								xhr.onprogress = function (e) {
+									if (e.lengthComputable) {
+										Debug.log(`Loading progress: ${((e.loaded / e.total) * 100).toFixed(2)}%`);
+									}
+								};
+
+								xhr.onload = function () {
+									if (xhr.status === 200) {
+										Debug.log('XHR load successful');
+										const blob = new Blob([xhr.response], { type });
+										const url = URL.createObjectURL(blob);
+
+										audio.src = url;
+										audio.removeAttribute('data-loading');
+
+										const currentTiddler = audio.closest('[data-tiddler-title]');
+										if (currentTiddler) {
+											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
+												?.fields[getAudioTimestampField(audio)];
+											if (savedTime) {
+												Debug.log(`Restoring saved time: ${savedTime}`);
+												audio.currentTime = parseFloat(savedTime);
+											}
+										}
+									}
+								};
+
+								xhr.onerror = function (error) {
+									Debug.error('XHR error occurred, retrying...', error);
+									if (retryCount < 3) {
+										setTimeout(() => loadAudio(retryCount + 1), 1000 * Math.pow(2, retryCount));
+									}
+								};
+
+								xhr.send();
+							};
+
+							loadAudio();
 						}
 					});
 				}, 100);
