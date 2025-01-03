@@ -8,7 +8,6 @@ module-type: parser
 	/*global $tw: false */
 	"use strict";
 
-	// Debug logging system
 	const Debug = {
 		enabled: true,
 		prefix: '🎵 [AudioParser]',
@@ -25,61 +24,6 @@ module-type: parser
 		error: function (message, error) {
 			if (!this.enabled) return;
 			console.error(`${this.prefix} ❌ ${message}`, error);
-		},
-
-		warn: function (message, data) {
-			if (!this.enabled) return;
-			console.warn(`${this.prefix} ⚠️ ${message}`, data);
-		},
-
-		state: function (audio) {
-			if (!this.enabled) return;
-			console.log(`${this.prefix} Audio State:`, {
-				src: audio.currentSrc,
-				readyState: audio.readyState,
-				paused: audio.paused,
-				currentTime: audio.currentTime,
-				duration: audio.duration,
-				initialized: audio.dataset.initialized,
-				fullyInitialized: audio.dataset.fullyInitialized,
-				settingTime: audio.dataset.settingTime
-			});
-		}
-	};
-
-
-
-	const BatchedUpdates = {
-		updates: {},
-		timeout: null,
-
-		queue: function (tiddlerTitle, fields) {
-			const currentTiddler = $tw.wiki.getTiddler(tiddlerTitle);
-			const hasChanged = Object.entries(fields).some(([field, value]) =>
-				currentTiddler?.fields[field] !== value
-			);
-
-			if (hasChanged) {
-				this.updates[tiddlerTitle] = this.updates[tiddlerTitle] || {};
-				Object.assign(this.updates[tiddlerTitle], fields);
-
-				if (this.timeout) clearTimeout(this.timeout);
-				this.timeout = setTimeout(() => this.flush(), 2000);
-			}
-		},
-
-		flush: function () {
-			const updates = Object.entries(this.updates).map(([title, fields]) => {
-				const tiddler = $tw.wiki.getTiddler(title);
-				return tiddler ? new $tw.Tiddler(tiddler, fields) : null;
-			}).filter(Boolean);
-
-			if (updates.length) {
-				$tw.wiki.addTiddlers(updates);
-			}
-
-			this.updates = {};
-			this.timeout = null;
 		}
 	};
 
@@ -101,18 +45,85 @@ module-type: parser
 
 		const element = {
 			type: "element",
-			tag: "audio",
+			tag: "div",
 			attributes: {
-				controls: { type: "string", value: "controls" },
-				style: { type: "string", value: "width: 100%; object-fit: contain" },
-				preload: { type: "string", value: "auto" },
-				class: { type: "string", value: "tw-audio-element" }
-			}
+				class: { type: "string", value: "audio-wrapper" },
+				style: { type: "string", value: "display: flex; align-items: center; gap: 5px; padding: 5px; border-radius: 4px;" }
+			},
+			children: [
+				{
+					type: "element",
+					tag: "button",
+					attributes: {
+						class: { type: "string", value: "skip-button skip-backward" },
+						style: {
+							type: "string", value: `
+                            padding: 8px 12px;
+                            background: #4a4a4a;
+                            border: none;
+                            border-radius: 4px;
+                            color: white;
+                            cursor: pointer;
+                            font-size: 14px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            min-width: 70px;
+                            transition: background-color 0.2s;
+                        `}
+					},
+					children: [
+						{
+							type: "text",
+							text: "⏪ 15s"
+						}
+					]
+				},
+				{
+					type: "element",
+					tag: "audio",
+					attributes: {
+						controls: { type: "string", value: "controls" },
+						style: { type: "string", value: "flex-grow: 1; object-fit: contain;" },
+						preload: { type: "string", value: "auto" },
+						class: { type: "string", value: "tw-audio-element" },
+						"data-loading": { type: "string", value: "true" }
+					}
+				},
+				{
+					type: "element",
+					tag: "button",
+					attributes: {
+						class: { type: "string", value: "skip-button skip-forward" },
+						style: {
+							type: "string", value: `
+                            padding: 8px 12px;
+                            background: #4a4a4a;
+                            border: none;
+                            border-radius: 4px;
+                            color: white;
+                            cursor: pointer;
+                            font-size: 14px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            min-width: 70px;
+                            transition: background-color 0.2s;
+                        `}
+					},
+					children: [
+						{
+							type: "text",
+							text: "15s ⏩"
+						}
+					]
+				}
+			]
 		};
 
+		const audioElement = element.children[1];
 		if (options._canonical_uri) {
-			Debug.log('Using canonical URI', options._canonical_uri);
-			element.children = [{
+			audioElement.children = [{
 				type: "element",
 				tag: "source",
 				attributes: {
@@ -121,8 +132,7 @@ module-type: parser
 				}
 			}];
 		} else if (text) {
-			Debug.log('Using base64 text data');
-			element.attributes.src = {
+			audioElement.attributes.src = {
 				type: "string",
 				value: "data:" + type + ";base64," + text
 			};
@@ -130,73 +140,109 @@ module-type: parser
 
 		if ($tw.browser) {
 			$tw.hooks.addHook("th-page-refreshed", function () {
-				Debug.log('Page refresh detected');
-
 				setTimeout(function () {
-					const audioElements = document.getElementsByClassName("tw-audio-element");
-					Debug.log(`Found ${audioElements.length} audio elements`);
+					const wrappers = document.getElementsByClassName("audio-wrapper");
 
-					Array.from(audioElements).forEach(function (audio) {
-						if (audio.dataset.initialized) {
-							Debug.log('Audio already initialized, skipping');
-							return;
-						}
+					Array.from(wrappers).forEach(function (wrapper) {
+						const audio = wrapper.querySelector('.tw-audio-element');
+						const backButton = wrapper.querySelector('.skip-backward');
+						const forwardButton = wrapper.querySelector('.skip-forward');
 
-						Debug.log('Initializing audio element');
-						audio.dataset.initialized = "true";
+						if (!audio.dataset.initialized) {
+							audio.dataset.initialized = "true";
 
-						// Force aggressive loading
-						audio.preload = "auto";
+							// Button event listeners
+							const skipBackward = () => {
+								audio.currentTime = Math.max(0, audio.currentTime - 15);
+							};
 
-						// Add event listeners
-						audio.addEventListener('play', function () {
-							Debug.log('Play event triggered');
-							const currentTiddler = this.closest('[data-tiddler-title]');
-							if (currentTiddler) {
-								const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-								const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
-									?.fields[getAudioTimestampField(this)];
-								if (savedTime && this.currentTime < 0.1) {
-									Debug.log(`Restoring saved time: ${savedTime}`);
-									this.currentTime = parseFloat(savedTime);
-								}
+							const skipForward = () => {
+								audio.currentTime = Math.min(audio.duration, audio.currentTime + 15);
+							};
+
+							// Desktop events
+							backButton.addEventListener('click', function (e) {
+								e.preventDefault();
+								skipBackward();
+							});
+
+							forwardButton.addEventListener('click', function (e) {
+								e.preventDefault();
+								skipForward();
+							});
+
+							// Mobile touch events
+							backButton.addEventListener('touchstart', function (e) {
+								e.preventDefault();
+								this.style.background = '#666666';
+								skipBackward();
+							});
+
+							forwardButton.addEventListener('touchstart', function (e) {
+								e.preventDefault();
+								this.style.background = '#666666';
+								skipForward();
+							});
+
+							// Button hover effects
+							['mouseenter', 'touchstart'].forEach(event => {
+								backButton.addEventListener(event, function () {
+									this.style.background = '#666666';
+								});
+								forwardButton.addEventListener(event, function () {
+									this.style.background = '#666666';
+								});
+							});
+
+							['mouseleave', 'touchend'].forEach(event => {
+								backButton.addEventListener(event, function () {
+									this.style.background = '#4a4a4a';
+								});
+								forwardButton.addEventListener(event, function () {
+									this.style.background = '#4a4a4a';
+								});
+							});
+
+							// Media Session API for Android controls
+							if ('mediaSession' in navigator) {
+								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
+								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
+								navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
+								navigator.mediaSession.setActionHandler('seekforward', skipForward);
+
+								audio.addEventListener('loadedmetadata', function () {
+									const currentTiddler = audio.closest('[data-tiddler-title]');
+									const title = currentTiddler ?
+										currentTiddler.getAttribute('data-tiddler-title') :
+										'Audio';
+
+									navigator.mediaSession.metadata = new MediaMetadata({
+										title: title,
+										artist: 'TiddlyWiki Audio',
+										album: 'Audio Player'
+									});
+								});
 							}
-						});
 
-						audio.addEventListener('pause', function () {
-							Debug.log('Pause event triggered');
-							const currentTiddler = this.closest('[data-tiddler-title]');
-							if (currentTiddler) {
-								const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-								const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
-								if (tiddler) {
-									Debug.log(`Saving time: ${this.currentTime}`);
-									$tw.wiki.addTiddler(
-										new $tw.Tiddler(
-											tiddler,
-											{ [getAudioTimestampField(this)]: this.currentTime.toString() }
-										),
-										{ suppressUpdate: true, quiet: true, dontNotify: true }
-									);
+							// Original event listeners for playback position
+							audio.addEventListener('play', function () {
+								const currentTiddler = this.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
+										?.fields[getAudioTimestampField(this)];
+									if (savedTime && this.currentTime < 0.1) {
+										this.currentTime = parseFloat(savedTime);
+									}
 								}
-							}
-						});
+							});
 
-						audio.addEventListener('timeupdate', function () {
-							if (!this.seeking &&
-								(!this.lastUpdateTime ||
-									(Date.now() - this.lastUpdateTime > 2000 &&
-										Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 1))) {
-
+							audio.addEventListener('pause', function () {
 								const currentTiddler = this.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
 									const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
 									if (tiddler) {
-										this.lastSavedTime = this.currentTime;
-										this.lastUpdateTime = Date.now();
-
-										Debug.log(`Saving time update: ${this.currentTime}`);
 										$tw.wiki.addTiddler(
 											new $tw.Tiddler(
 												tiddler,
@@ -206,48 +252,85 @@ module-type: parser
 										);
 									}
 								}
-							}
-						});
+							});
 
-						// Load the audio file
-						const xhr = new XMLHttpRequest();
-						xhr.open('GET', audio.currentSrc, true);
-						xhr.responseType = 'blob';
+							audio.addEventListener('timeupdate', function () {
+								if (!this.seeking &&
+									(!this.lastUpdateTime ||
+										(Date.now() - this.lastUpdateTime > 5000 &&
+											Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
 
-						xhr.onprogress = function (e) {
-							if (e.lengthComputable) {
-								Debug.log(`Loading progress: ${((e.loaded / e.total) * 100).toFixed(2)}%`);
-							}
-						};
+									const currentTiddler = this.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
+										if (tiddler) {
+											this.lastSavedTime = this.currentTime;
+											this.lastUpdateTime = Date.now();
 
-						xhr.onload = function () {
-							if (xhr.status === 200) {
-								Debug.log('XHR load successful');
-								const blob = new Blob([xhr.response], { type });
-								const url = URL.createObjectURL(blob);
-
-								Debug.log('Setting audio src to blob URL');
-								audio.src = url;
-
-								// Restore timestamp after loading
-								const currentTiddler = audio.closest('[data-tiddler-title]');
-								if (currentTiddler) {
-									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
-										?.fields[getAudioTimestampField(audio)];
-									if (savedTime) {
-										Debug.log(`Restoring saved time: ${savedTime}`);
-										audio.currentTime = parseFloat(savedTime);
+											$tw.wiki.addTiddler(
+												new $tw.Tiddler(
+													tiddler,
+													{ [getAudioTimestampField(this)]: this.currentTime.toString() }
+												),
+												{ suppressUpdate: true, quiet: true, dontNotify: true }
+											);
+										}
 									}
 								}
-							}
-						};
+							});
 
-						xhr.onerror = function (error) {
-							Debug.error('XHR error occurred', error);
-						};
+							audio.addEventListener('error', function () {
+								if (this.src.startsWith('blob:')) {
+									URL.revokeObjectURL(this.src);
+								}
+							});
 
-						xhr.send();
+							// Load audio with retry support
+							const loadAudio = function (retryCount = 0) {
+								const xhr = new XMLHttpRequest();
+								xhr.open('GET', audio.currentSrc, true);
+								xhr.responseType = 'blob';
+
+								xhr.onprogress = function (e) {
+									if (e.lengthComputable) {
+										Debug.log(`Loading progress: ${((e.loaded / e.total) * 100).toFixed(2)}%`);
+									}
+								};
+
+								xhr.onload = function () {
+									if (xhr.status === 200) {
+										Debug.log('XHR load successful');
+										const blob = new Blob([xhr.response], { type });
+										const url = URL.createObjectURL(blob);
+
+										audio.src = url;
+										audio.removeAttribute('data-loading');
+
+										const currentTiddler = audio.closest('[data-tiddler-title]');
+										if (currentTiddler) {
+											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
+												?.fields[getAudioTimestampField(audio)];
+											if (savedTime) {
+												audio.currentTime = parseFloat(savedTime);
+											}
+										}
+									}
+								};
+
+								xhr.onerror = function (error) {
+									Debug.error('XHR error occurred, retrying...', error);
+									if (retryCount < 3) {
+										setTimeout(() => loadAudio(retryCount + 1), 1000 * Math.pow(2, retryCount));
+									}
+								};
+
+								xhr.send();
+							};
+
+							loadAudio();
+						}
 					});
 				}, 100);
 			});
