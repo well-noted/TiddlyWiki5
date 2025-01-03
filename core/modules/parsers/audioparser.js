@@ -257,15 +257,14 @@ module-type: parser
 								});
 							});
 
-							// Media Session API
 							if ('mediaSession' in navigator) {
-								// Set up basic controls with consistent state updates
-								const updateMediaState = () => {
+								// Single function to update media state
+								const updateMediaState = (isPlaying) => {
 									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
 										// Always update both state and position together
-										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+										navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 										navigator.mediaSession.setPositionState({
 											duration: audio.duration,
 											position: audio.currentTime,
@@ -276,15 +275,15 @@ module-type: parser
 									}
 								};
 
-								// Set up play/pause handlers that use the same update method
+								// Set up basic controls using the same update function
 								navigator.mediaSession.setActionHandler('play', () => {
 									audio.play();
-									updateMediaState(); // Use same update method for both
+									updateMediaState(true); // Use same function for play
 								});
 
 								navigator.mediaSession.setActionHandler('pause', () => {
 									audio.pause();
-									updateMediaState(); // Use same update method for both
+									updateMediaState(false); // Use same function for pause
 								});
 
 								// Set up skip controls
@@ -304,19 +303,21 @@ module-type: parser
 										album: 'Audio Player'
 									});
 
-									updateMediaState(); // Initial state
+									updateMediaState(false); // Initial state
 								});
 
-								// Update during playback using same method
+								// Use same update function for all events
+								['play', 'pause'].forEach(event => {
+									audio.addEventListener(event, () => {
+										updateMediaState(!audio.paused);
+									});
+								});
+
+								// Update during playback using same function
 								audio.addEventListener('timeupdate', () => {
 									if (!audio.paused) {
-										updateMediaState();
+										updateMediaState(true);
 									}
-								});
-
-								// Use same update method for all events
-								['play', 'pause', 'seeking', 'seeked'].forEach(event => {
-									audio.addEventListener(event, updateMediaState);
 								});
 							}
 							
