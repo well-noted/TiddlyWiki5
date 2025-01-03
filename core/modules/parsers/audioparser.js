@@ -259,10 +259,41 @@ module-type: parser
 
 							// Media Session API
 							if ('mediaSession' in navigator) {
-								navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
-								navigator.mediaSession.setActionHandler('seekforward', skipForward);
+								// Register all possible seek actions
+								const seekActions = [
+									['seekbackward', skipBackward],
+									['seekforward', skipForward],
+									['seekto', (details) => {
+										if (details.seekTime !== undefined) {
+											audio.currentTime = details.seekTime;
+										}
+									}]
+								];
 
-								// Add metadata and position state after audio is loaded
+								seekActions.forEach(([action, handler]) => {
+									try {
+										navigator.mediaSession.setActionHandler(action, handler);
+									} catch (error) {
+										Debug.warn(`Failed to set media session action: ${action}`, error);
+									}
+								});
+
+								// Update position state whenever time changes
+								const updatePositionState = () => {
+									if (audio.duration && !isNaN(audio.duration)) {
+										try {
+											navigator.mediaSession.setPositionState({
+												duration: audio.duration,
+												playbackRate: audio.playbackRate,
+												position: audio.currentTime
+											});
+										} catch (error) {
+											Debug.warn('Failed to update position state', error);
+										}
+									}
+								};
+
+								// Set up metadata and initial position state
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -275,27 +306,17 @@ module-type: parser
 										album: 'Audio Player'
 									});
 
-									// Set position state only after duration is available
-									if (audio.duration && !isNaN(audio.duration)) {
-										navigator.mediaSession.setPositionState({
-											duration: audio.duration,
-											playbackRate: audio.playbackRate,
-											position: audio.currentTime
-										});
-									}
+									updatePositionState();
 								});
 
 								// Update position state during playback
-								audio.addEventListener('timeupdate', function () {
-									if (audio.duration && !isNaN(audio.duration)) {
-										navigator.mediaSession.setPositionState({
-											duration: audio.duration,
-											playbackRate: audio.playbackRate,
-											position: audio.currentTime
-										});
-									}
-								});
+								audio.addEventListener('timeupdate', updatePositionState);
+								audio.addEventListener('play', updatePositionState);
+								audio.addEventListener('pause', updatePositionState);
+								audio.addEventListener('seeking', updatePositionState);
+								audio.addEventListener('seeked', updatePositionState);
 							}
+							
 							// Playback position events
 							audio.addEventListener('play', function () {
 								Debug.log('Play event triggered');
