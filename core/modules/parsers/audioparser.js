@@ -311,14 +311,17 @@ module-type: parser
 								// Update during playback
 								audio.addEventListener('timeupdate', () => {
 									if (!audio.paused) {
-										updateMediaState(PlaybackState.PLAYING);
+										updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
 									}
 								});
 
 								// Handle seeking states
-								audio.addEventListener('seeking', () => updateMediaState(PlaybackState.BUFFERING));
+								audio.addEventListener('seeking', () => updateMediaState(PlaybackState.BUFFERING, audio.currentTime * 1000));
 								audio.addEventListener('seeked', () => {
-									updateMediaState(audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING);
+									updateMediaState(
+										audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
+										audio.currentTime * 1000
+									);
 								});
 							}
 							
