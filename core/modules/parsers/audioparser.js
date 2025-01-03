@@ -257,18 +257,12 @@ module-type: parser
 								});
 							});
 
-							// Media Session API
+							// Media Session API Implementation
 							if ('mediaSession' in navigator) {
-								// Set up basic controls
-								navigator.mediaSession.setActionHandler('play', () => audio.play());
-								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+								let updateInterval;
 
-								// Set up skip controls using previoustrack/nexttrack
-								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
-								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
-
-								// Update metadata when loaded
-								audio.addEventListener('loadedmetadata', function () {
+								// Basic metadata setup function
+								const setupMetadata = (audio) => {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
 										currentTiddler.getAttribute('data-tiddler-title') :
@@ -277,36 +271,81 @@ module-type: parser
 									navigator.mediaSession.metadata = new MediaMetadata({
 										title: title,
 										artist: 'TiddlyWiki Audio',
-										album: 'Audio Player'
+										album: 'Audio Player',
+										// Optional: Add artwork array here if needed
 									});
-								});
+								};
 
-								// Update playback state and position
-								const updatePlaybackState = () => {
+								// Position state update function with validation
+								const updatePositionState = (audio) => {
 									if (!audio.duration || isNaN(audio.duration)) return;
 
-									try {
-										// Set playback state
-										navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+									const position = Math.min(audio.currentTime, audio.duration);
 
-										// Update position state with current values
+									try {
 										navigator.mediaSession.setPositionState({
 											duration: audio.duration,
-											position: audio.currentTime,
+											position: position,
 											playbackRate: audio.playbackRate || 1.0
 										});
 									} catch (error) {
-										Debug.warn('Failed to update media session state', error);
+										console.warn('Failed to update position state:', error);
 									}
 								};
 
-								// Update on all relevant events
-								['play', 'pause', 'timeupdate', 'seeking', 'seeked'].forEach(event => {
-									audio.addEventListener(event, updatePlaybackState);
-								});
+								// Playback state update function
+								const updatePlaybackState = (audio) => {
+									const state = audio.paused ? 'paused' : 'playing';
+									navigator.mediaSession.playbackState = state;
+									updatePositionState(audio);
+								};
 
-								// Initial state update
-								audio.addEventListener('loadedmetadata', updatePlaybackState);
+								// Setup media session handlers
+								const setupMediaSession = (audio) => {
+									// Basic controls
+									navigator.mediaSession.setActionHandler('play', () => audio.play());
+									navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+
+									// Seeking controls (if needed)
+									navigator.mediaSession.setActionHandler('seekto', (details) => {
+										if (details.fastSeek && !('fastSeek' in audio)) return;
+										audio.currentTime = details.seekTime;
+										updatePositionState(audio);
+									});
+
+									// Event listeners
+									audio.addEventListener('loadedmetadata', () => {
+										setupMetadata(audio);
+										updatePlaybackState(audio);
+									});
+
+									audio.addEventListener('play', () => {
+										updatePlaybackState(audio);
+										// Start regular updates during playback
+										updateInterval = setInterval(() => updatePositionState(audio), 250);
+									});
+
+									audio.addEventListener('pause', () => {
+										updatePlaybackState(audio);
+										clearInterval(updateInterval);
+									});
+
+									audio.addEventListener('seeking', () => updatePositionState(audio));
+									audio.addEventListener('seeked', () => updatePositionState(audio));
+									audio.addEventListener('ratechange', () => updatePositionState(audio));
+
+									// Handle end of track
+									audio.addEventListener('ended', () => {
+										clearInterval(updateInterval);
+										updatePlaybackState(audio);
+									});
+								};
+
+								// Initialize for an audio element
+								const initializeMediaSession = (audioElement) => {
+									if (!audioElement) return;
+									setupMediaSession(audioElement);
+								};
 							}
 							
 							// Playback position events
