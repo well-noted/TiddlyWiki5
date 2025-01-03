@@ -84,8 +84,8 @@ module-type: parser
 
 	function getAudioTimestampField(audio) {
 		const sourceElement = audio.querySelector('source');
-		let originalSrc = sourceElement ? 
-			sourceElement.getAttribute('src') : 
+		let originalSrc = sourceElement ?
+			sourceElement.getAttribute('src') :
 			audio.getAttribute('src');
 
 		let hash = 5381;
@@ -258,87 +258,66 @@ module-type: parser
 							});
 
 							if ('mediaSession' in navigator) {
-								// Android MediaSession playback states
-								const PlaybackState = {
-									NONE: 0,
-									STOPPED: 1,
-									PLAYING: 2,
-									PAUSED: 3,
-									FAST_FORWARDING: 4,
-									REWINDING: 5,
-									BUFFERING: 6,
-									ERROR: 7
-								};
+								// Set up basic controls
+								navigator.mediaSession.setActionHandler('play', () => {
+									audio.play();
+									updateMediaState();
+								});
 
-								// Function to update both state and position together
-								const updateMediaState = (state) => {
+								navigator.mediaSession.setActionHandler('pause', () => {
+									audio.pause();
+									updateMediaState();
+								});
+
+								// Add back the skip controls
+								const skipTime = 10; // Skip time in seconds
+
+								navigator.mediaSession.setActionHandler('previoustrack', () => {
+									audio.currentTime = Math.max(audio.currentTime - skipTime, 0);
+									updateMediaState();
+								});
+
+								navigator.mediaSession.setActionHandler('nexttrack', () => {
+									audio.currentTime = Math.min(audio.currentTime + skipTime, audio.duration);
+									updateMediaState();
+								});
+
+								// Function to update media state
+								const updateMediaState = () => {
 									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
 										// Convert time to milliseconds for Android
 										const positionMs = Math.floor(audio.currentTime * 1000);
-										const durationMs = Math.floor(audio.duration * 1000);
 
-										// Set both state and position together
-										navigator.mediaSession.setState(state, positionMs, audio.playbackRate);
+										// Set both state and position
+										navigator.mediaSession.setState(
+											audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
+											positionMs,
+											audio.paused ? 0 : 1.0
+										);
 
-										// Update metadata state
-										navigator.mediaSession.playbackState =
-											state === PlaybackState.PLAYING ? "playing" : "paused";
+										// Update position state
+										navigator.mediaSession.setPositionState({
+											duration: audio.duration,
+											position: audio.currentTime,
+											playbackRate: audio.playbackRate
+										});
 									} catch (error) {
 										Debug.warn('Failed to update media session state', error);
 									}
 								};
 
-								// Set up basic controls
-								navigator.mediaSession.setActionHandler('play', () => {
-									audio.play();
-									updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
-									startPositionUpdates();
-								});
-
-								navigator.mediaSession.setActionHandler('pause', () => {
-									audio.pause();
-									updateMediaState(PlaybackState.PAUSED, audio.currentTime * 1000);
-									stopPositionUpdates();
-								});
-
-								let positionUpdateInterval;
-
-								function startPositionUpdates() {
-									stopPositionUpdates(); // Clear any existing interval
-									positionUpdateInterval = setInterval(() => {
-										if (!audio.paused) {
-											updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
-										}
-									}, 250); // Update 4 times per second
-								}
-
-								function stopPositionUpdates() {
-									if (positionUpdateInterval) {
-										clearInterval(positionUpdateInterval);
-										positionUpdateInterval = null;
-									}
-								}
-
-								// Update state on all relevant events
-								['play', 'pause'].forEach(event => {
-									audio.addEventListener(event, () => {
-										if (audio.paused) {
-											updateMediaState(PlaybackState.PAUSED, audio.currentTime * 1000);
-											stopPositionUpdates();
-										} else {
-											updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
-											startPositionUpdates();
-										}
-									});
-								});
-
-								// We can remove or keep the timeupdate listener as backup
+								// Update during playback
 								audio.addEventListener('timeupdate', () => {
 									if (!audio.paused) {
-										updateMediaState(PlaybackState.PLAYING, audio.currentTime * 1000);
+										updateMediaState();
 									}
+								});
+
+								// Handle all state changes
+								['play', 'pause', 'seeking', 'seeked'].forEach(event => {
+									audio.addEventListener(event, updateMediaState);
 								});
 							}
 							
