@@ -289,6 +289,7 @@ module-type: parser
 									try {
 										// Convert time to milliseconds for Android
 										const positionMs = Math.floor(audio.currentTime * 1000);
+										const durationMs = Math.floor(audio.duration * 1000); // Add duration in ms
 
 										// Set both state and position
 										navigator.mediaSession.setState(
@@ -297,7 +298,7 @@ module-type: parser
 											audio.paused ? 0 : 1.0
 										);
 
-										// Update position state
+										// Update position state with both current time and duration
 										navigator.mediaSession.setPositionState({
 											duration: audio.duration,
 											position: audio.currentTime,
@@ -307,6 +308,13 @@ module-type: parser
 										Debug.warn('Failed to update media session state', error);
 									}
 								};
+
+								// Add more frequent updates during playback
+								setInterval(() => {
+									if (!audio.paused) {
+										updateMediaState();
+									}
+								}, 1000); // Update every second while playing
 
 								// Update during playback
 								audio.addEventListener('timeupdate', () => {
