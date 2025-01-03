@@ -258,12 +258,11 @@ module-type: parser
 							});
 
 							if ('mediaSession' in navigator) {
-								// Single function to update media state
+								// Single function to update media state with validation
 								const updateMediaState = (isPlaying) => {
-									if (!audio.duration || isNaN(audio.duration)) return;
+									if (!audio.duration || isNaN(audio.duration) || isNaN(audio.currentTime)) return;
 
 									try {
-										// Always update both state and position together
 										navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 										navigator.mediaSession.setPositionState({
 											duration: audio.duration,
@@ -275,22 +274,27 @@ module-type: parser
 									}
 								};
 
-								// Set up basic controls using the same update function
-								navigator.mediaSession.setActionHandler('play', () => {
-									audio.play();
-									updateMediaState(true); // Use same function for play
+								// Enhanced play handler with async/await
+								navigator.mediaSession.setActionHandler('play', async () => {
+									try {
+										await audio.play();
+										updateMediaState(true);
+									} catch (error) {
+										Debug.warn('Failed to play audio', error);
+									}
 								});
 
+								// Pause handler remains simple
 								navigator.mediaSession.setActionHandler('pause', () => {
 									audio.pause();
-									updateMediaState(false); // Use same function for pause
+									updateMediaState(false);
 								});
 
-								// Set up skip controls
+								// Skip controls remain unchanged
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
 								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
 
-								// Update metadata when loaded
+								// Metadata handler with improved validation
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -303,19 +307,19 @@ module-type: parser
 										album: 'Audio Player'
 									});
 
-									updateMediaState(false); // Initial state
+									updateMediaState(false);
 								});
 
-								// Use same update function for all events
+								// Play/pause event listeners
 								['play', 'pause'].forEach(event => {
 									audio.addEventListener(event, () => {
 										updateMediaState(!audio.paused);
 									});
 								});
 
-								// Update during playback using same function
+								// Enhanced timeupdate listener with validation
 								audio.addEventListener('timeupdate', () => {
-									if (!audio.paused) {
+									if (!audio.paused && !isNaN(audio.currentTime)) {
 										updateMediaState(true);
 									}
 								});
