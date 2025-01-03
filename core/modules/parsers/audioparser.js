@@ -257,84 +257,27 @@ module-type: parser
 								});
 							});
 
+							// Media Session API
 							if ('mediaSession' in navigator) {
-								// Set up basic controls
-								navigator.mediaSession.setActionHandler('play', () => {
-									audio.play();
-									updateMediaState();
-								});
+								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
+								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
+								navigator.mediaSession.setActionHandler('seekbackward', skipBackward);
+								navigator.mediaSession.setActionHandler('seekforward', skipForward);
 
-								navigator.mediaSession.setActionHandler('pause', () => {
-									audio.pause();
-									updateMediaState();
-								});
+								audio.addEventListener('loadedmetadata', function () {
+									const currentTiddler = audio.closest('[data-tiddler-title]');
+									const title = currentTiddler ?
+										currentTiddler.getAttribute('data-tiddler-title') :
+										'Audio';
 
-								// Add back the skip controls
-								const skipTime = 10; // Skip time in seconds
-
-								navigator.mediaSession.setActionHandler('previoustrack', () => {
-									audio.currentTime = Math.max(audio.currentTime - skipTime, 0);
-									updateMediaState();
-								});
-
-								navigator.mediaSession.setActionHandler('nexttrack', () => {
-									audio.currentTime = Math.min(audio.currentTime + skipTime, audio.duration);
-									updateMediaState();
-								});
-
-								// Function to update media state
-								const updateMediaState = () => {
-									if (!audio.duration || isNaN(audio.duration)) return;
-
-									try {
-										const positionMs = Math.floor(audio.currentTime * 1000);
-										const durationMs = Math.floor(audio.duration * 1000);
-										
-										Debug.log(`Updating media state - Position: ${positionMs}ms, Duration: ${durationMs}ms`);
-
-										// Include duration in setState
-										navigator.mediaSession.setState(
-											audio.paused ? PlaybackState.PAUSED : PlaybackState.PLAYING,
-											positionMs,
-											audio.paused ? 0 : 1.0,
-											durationMs  // Add duration parameter
-										);
-
-										navigator.mediaSession.setPositionState({
-											duration: audio.duration,
-											position: audio.currentTime,
-											playbackRate: audio.playbackRate
-										});
-									} catch (error) {
-										Debug.warn('Failed to update media session state', error);
-									}
-								};
-
-								// Add timeupdate listener as backup
-								audio.addEventListener('timeupdate', updateMediaState);
-
-								let animationFrameId;
-
-								const updateLoop = () => {
-									if (!audio.paused) {
-										updateMediaState();
-										animationFrameId = requestAnimationFrame(updateLoop);
-									}
-								};
-
-								// Update during playback
-								audio.addEventListener('timeupdate', () => {
-									if (!audio.paused) {
-										updateMediaState();
-									}
-								});
-
-								// Handle all state changes
-								['play', 'pause', 'seeking', 'seeked'].forEach(event => {
-									audio.addEventListener(event, updateMediaState);
+									navigator.mediaSession.metadata = new MediaMetadata({
+										title: title,
+										artist: 'TiddlyWiki Audio',
+										album: 'Audio Player'
+									});
 								});
 							}
-							
+
 							// Playback position events
 							audio.addEventListener('play', function () {
 								Debug.log('Play event triggered');
