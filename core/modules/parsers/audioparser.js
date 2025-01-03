@@ -258,56 +258,54 @@ module-type: parser
 							});
 
 							if ('mediaSession' in navigator) {
-								let lastKnownPosition = 0;
+								let isUpdatingPosition = false;
 
-								// Separate position update function
-								const updatePosition = () => {
+								const updateMediaSession = () => {
 									if (!audio.duration || isNaN(audio.duration)) return;
 
 									try {
-										navigator.mediaSession.setPositionState({
-											duration: audio.duration,
-											position: lastKnownPosition,
-											playbackRate: audio.playbackRate || 1.0
-										});
+										// Ensure we're using the actual current position
+										const currentPosition = audio.currentTime;
+
+										// Only update if we have valid values
+										if (!isNaN(currentPosition)) {
+											// Set position state first
+											navigator.mediaSession.setPositionState({
+												duration: audio.duration,
+												position: currentPosition,
+												playbackRate: audio.playbackRate || 1.0
+											});
+
+											// Then update playback state
+											navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+										}
 									} catch (error) {
-										Debug.warn('Failed to update position state', error);
+										Debug.warn('Media session update failed', error);
 									}
 								};
 
-								// State update function
-								const updatePlaybackState = (isPlaying) => {
-									try {
-										navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
-									} catch (error) {
-										Debug.warn('Failed to update playback state', error);
-									}
-								};
-
-								// Play handler
 								navigator.mediaSession.setActionHandler('play', () => {
-									audio.play().then(() => {
-										lastKnownPosition = audio.currentTime;
-										updatePlaybackState(true);
-										updatePosition();
-									}).catch(error => {
-										Debug.warn('Failed to play audio', error);
-									});
+									const playPromise = audio.play();
+									if (playPromise !== undefined) {
+										playPromise.then(() => {
+											// Small delay to ensure audio has actually started
+											setTimeout(updateMediaSession, 50);
+										}).catch(error => {
+											Debug.warn('Play failed', error);
+										});
+									}
 								});
 
-								// Pause handler
 								navigator.mediaSession.setActionHandler('pause', () => {
 									audio.pause();
-									lastKnownPosition = audio.currentTime;
-									updatePlaybackState(false);
-									updatePosition();
+									// Update immediately on pause
+									updateMediaSession();
 								});
 
-								// Skip controls
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
 								navigator.mediaSession.setActionHandler('nexttrack', skipForward);
 
-								// Metadata handler
+								// Update metadata when loaded
 								audio.addEventListener('loadedmetadata', function () {
 									const currentTiddler = audio.closest('[data-tiddler-title]');
 									const title = currentTiddler ?
@@ -320,26 +318,21 @@ module-type: parser
 										album: 'Audio Player'
 									});
 
-									lastKnownPosition = 0;
-									updatePlaybackState(false);
-									updatePosition();
+									updateMediaSession();
 								});
 
-								// Track position updates
+								// Handle position updates during playback
 								audio.addEventListener('timeupdate', () => {
-									lastKnownPosition = audio.currentTime;
-									if (!audio.paused) {
-										updatePosition();
+									if (!isUpdatingPosition) {
+										isUpdatingPosition = true;
+										updateMediaSession();
+										isUpdatingPosition = false;
 									}
 								});
 
 								// Handle play/pause events
 								['play', 'pause'].forEach(event => {
-									audio.addEventListener(event, () => {
-										lastKnownPosition = audio.currentTime;
-										updatePlaybackState(!audio.paused);
-										updatePosition();
-									});
+									audio.addEventListener(event, updateMediaSession);
 								});
 							}
 							
