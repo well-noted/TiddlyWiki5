@@ -47,7 +47,7 @@ module-type: parser
 		}
 	};
 
-	// BatchedUpdates system for optimized tiddler updates
+	// BatchedUpdates system remains unchanged
 	const BatchedUpdates = {
 		updates: {},
 		timeout: null,
@@ -98,6 +98,7 @@ module-type: parser
 	var AudioParser = function (type, text, options) {
 		Debug.log('Creating new AudioParser instance', { type, hasText: !!text, options });
 
+		// Create the element structure
 		const element = {
 			type: "element",
 			tag: "div",
@@ -186,9 +187,35 @@ module-type: parser
 		}
 
 		if ($tw.browser) {
+			// First, ensure AudioControls is initialized
 			$tw.hooks.addHook("th-page-refreshed", function () {
-				Debug.log('Page refresh detected');
+				Debug.log('Page refresh detected - initializing AudioControls');
 
+				// Get AudioControls from wiki store
+				const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
+
+				if (audioControlsTiddler) {
+					Debug.log('Found AudioControls tiddler, attempting to initialize');
+					try {
+						// Execute the AudioControls code
+						const AudioControlsCode = audioControlsTiddler.fields.text;
+						(new Function(AudioControlsCode))();
+
+						// Initialize AudioControls instance
+						if (!window.audioControls) {
+							Debug.log('Creating new AudioControls instance');
+							window.audioControls = new AudioControls();
+						} else {
+							Debug.log('AudioControls already initialized');
+						}
+					} catch (e) {
+						Debug.error('Failed to initialize AudioControls:', e);
+					}
+				} else {
+					Debug.error('AudioControls tiddler not found');
+				}
+
+				// Then proceed with audio wrapper initialization
 				setTimeout(function () {
 					const wrappers = document.getElementsByClassName("audio-wrapper");
 					Debug.log(`Found ${wrappers.length} audio wrappers`);
@@ -203,6 +230,68 @@ module-type: parser
 						if (!audio.dataset.initialized) {
 							Debug.log('Initializing audio element');
 							audio.dataset.initialized = "true";
+
+							// Add debug logging for AudioControls initialization
+							Debug.log('Checking AudioControls initialization status');
+							if (!window.audioControls) {
+								Debug.log('AudioControls not initialized, attempting to initialize');
+								const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
+								if (audioControlsTiddler) {
+									try {
+										Debug.log('Found AudioControls tiddler, executing code');
+										const AudioControlsCode = audioControlsTiddler.fields.text;
+										(new Function(AudioControlsCode))();
+										Debug.log('AudioControls code executed successfully');
+									} catch (e) {
+										Debug.error('Failed to initialize AudioControls:', e);
+									}
+								} else {
+									Debug.error('AudioControls tiddler not found');
+								}
+							} else {
+								Debug.log('AudioControls already initialized');
+							}
+
+							// Add extensive debug logging for play/pause events
+							audio.addEventListener('play', function () {
+								Debug.log('Play event triggered - attempting to show overlay');
+								Debug.log('AudioControls status:', window.audioControls ? 'exists' : 'not found');
+
+								if (window.audioControls) {
+									Debug.log('Setting current audio and updating overlay');
+									window.audioControls.currentAudio = this;
+									window.audioControls.updateOverlay();
+
+									const overlay = document.getElementById('audio-controls-overlay');
+									Debug.log('Overlay element:', overlay ? 'found' : 'not found');
+
+									if (overlay) {
+										Debug.log('Adding active class to overlay');
+										overlay.classList.add('active');
+										Debug.log('Overlay classes after addition:', overlay.classList.toString());
+									} else {
+										Debug.error('Audio controls overlay element not found');
+									}
+								} else {
+									Debug.error('AudioControls not initialized during play event');
+								}
+							});
+
+							// Add debug logging for overlay state changes
+							const observeOverlay = new MutationObserver((mutations) => {
+								mutations.forEach((mutation) => {
+									if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+										Debug.log('Overlay class changed:',
+											document.getElementById('audio-controls-overlay').classList.toString());
+									}
+								});
+							});
+
+							const overlay = document.getElementById('audio-controls-overlay');
+							if (overlay) {
+								Debug.log('Setting up overlay state observer');
+								observeOverlay.observe(overlay, { attributes: true });
+							}
 
 							// Skip functions
 							const skipBackward = () => {
@@ -280,6 +369,46 @@ module-type: parser
 										artist: 'TiddlyWiki Audio',
 										album: 'Audio Player'
 									});
+								});
+
+								// Add these right after the Media Session API initialization
+								audio.addEventListener('play', function () {
+									Debug.log('Play event triggered - checking AudioControls');
+									if (!window.audioControls) {
+										Debug.log('AudioControls not found, attempting to initialize');
+										const audioControlsTiddler = $tw.wiki.getTiddler("$:/core/modules/parsers/audiocontrols.js");
+										if (audioControlsTiddler) {
+											try {
+												const AudioControlsCode = audioControlsTiddler.fields.text;
+												(new Function(AudioControlsCode))();
+												window.audioControls = new AudioControls();
+												Debug.log('AudioControls initialized successfully');
+											} catch (e) {
+												Debug.error('Failed to initialize AudioControls:', e);
+											}
+										}
+									}
+
+									if (window.audioControls) {
+										Debug.log('Setting current audio and showing overlay');
+										window.audioControls.currentAudio = this;
+										window.audioControls.updateOverlay();
+										const overlay = document.getElementById('audio-controls-overlay');
+										if (overlay) {
+											overlay.classList.add('active');
+											Debug.log('Overlay activated');
+										} else {
+											Debug.error('Overlay element not found');
+										}
+									}
+								});
+
+								audio.addEventListener('pause', function () {
+									Debug.log('Pause event triggered');
+									// Only update play button state, don't hide overlay
+									if (window.audioControls && window.audioControls.elements.playButton) {
+										window.audioControls.elements.playButton.innerHTML = '▶️';
+									}
 								});
 
 								// Update playback state and position
