@@ -28,14 +28,10 @@ module-type: library
 					const scrollPosition = window.scrollY;
 					const documentHeight = document.documentElement.scrollHeight;
 
-					// Calculate position relative to viewport
-					const bottomOffset = Math.min(
-						20, // minimum offset from bottom
-						viewportHeight - (documentHeight - scrollPosition - viewportHeight)
-					);
-
-					this.overlay.style.position = 'fixed';
-					this.overlay.style.bottom = `${bottomOffset}px`;
+					// Calculate the position relative to the current viewport
+					this.overlay.style.position = 'absolute';
+					this.overlay.style.top = `${scrollPosition + viewportHeight - this.overlay.offsetHeight}px`;
+					this.overlay.style.transform = 'translateX(-50%)';  // Keep horizontal centering
 				});
 			}, { passive: true });
 		}
