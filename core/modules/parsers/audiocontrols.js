@@ -26,12 +26,21 @@ module-type: library
 				requestAnimationFrame(() => {
 					const viewportHeight = window.innerHeight;
 					const scrollPosition = window.scrollY;
-					const documentHeight = document.documentElement.scrollHeight;
 
-					// Calculate the position relative to the current viewport
+					// Calculate position relative to viewport for both mobile and desktop
 					this.overlay.style.position = 'absolute';
 					this.overlay.style.top = `${scrollPosition + viewportHeight - this.overlay.offsetHeight}px`;
-					this.overlay.style.transform = 'translateX(-50%)';  // Keep horizontal centering
+
+					// Keep horizontal positioning based on screen size
+					if (window.innerWidth >= 768) {
+						// Desktop
+						this.overlay.style.left = '50%';
+						this.overlay.style.transform = 'translateX(-50%)';
+					} else {
+						// Mobile
+						this.overlay.style.left = '0';
+						this.overlay.style.transform = 'none';
+					}
 				});
 			}, { passive: true });
 		}
