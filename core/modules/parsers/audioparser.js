@@ -277,20 +277,6 @@ module-type: parser
 								}
 							});
 
-							audio.addEventListener('pause', function () {
-								Debug.log('Pause event triggered - attempting to hide overlay');
-								const overlay = document.getElementById('audio-controls-overlay');
-								Debug.log('Overlay element:', overlay ? 'found' : 'not found');
-
-								if (overlay) {
-									Debug.log('Removing active class from overlay');
-									overlay.classList.remove('active');
-									Debug.log('Overlay classes after removal:', overlay.classList.toString());
-								} else {
-									Debug.error('Audio controls overlay element not found during pause');
-								}
-							});
-
 							// Add debug logging for overlay state changes
 							const observeOverlay = new MutationObserver((mutations) => {
 								mutations.forEach((mutation) => {
@@ -419,12 +405,9 @@ module-type: parser
 
 								audio.addEventListener('pause', function () {
 									Debug.log('Pause event triggered');
-									const overlay = document.getElementById('audio-controls-overlay');
-									if (overlay) {
-										overlay.classList.remove('active');
-										Debug.log('Overlay deactivated');
-									} else {
-										Debug.error('Overlay element not found');
+									// Only update play button state, don't hide overlay
+									if (window.audioControls && window.audioControls.elements.playButton) {
+										window.audioControls.elements.playButton.innerHTML = '▶️';
 									}
 								});
 

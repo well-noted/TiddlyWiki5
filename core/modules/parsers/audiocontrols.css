@@ -1,39 +1,86 @@
 /* audiocontrols.css */
 #audio-controls-overlay {
 	position: fixed;
-	bottom: 20px;
-	left: 50%;
-	transform: translateX(-50%);
-	width: 90%;
-	max-width: 800px;
+	z-index: 1000;
 	background: rgba(0, 0, 0, 0.8);
 	color: white;
-	padding: 10px;
-	z-index: 1000;
 	backdrop-filter: blur(10px);
-	border-radius: 8px;
 	opacity: 0;
 	pointer-events: none;
-	transition: opacity 0.3s ease;
+	transition: all 0.3s ease;
 }
 
+/* Desktop styles */
+@media screen and (min-width: 768px) {
+	#audio-controls-overlay {
+		bottom: 20px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 90%;
+		max-width: 800px;
+		border-radius: 8px;
+		padding: 10px;
+	}
+}
+
+/* Mobile styles */
+@media screen and (max-width: 767px) {
+	#audio-controls-overlay {
+		bottom: 0;
+		left: 0;
+		width: 100%;
+		padding: 15px 10px;
+		padding-bottom: calc(env(safe-area-inset-bottom) + 15px);
+		border-radius: 12px 12px 0 0;
+		background: rgba(0, 0, 0, 0.95);
+	}
+
+	.audio-controls-content {
+		gap: 12px;
+	}
+
+	#audio-title {
+		font-size: 0.9em;
+	}
+
+	.audio-controls button {
+		font-size: 1.3em;
+	}
+
+	.close-button {
+		top: 12px !important;
+		right: 12px !important;
+	}
+}
+
+/* Common styles that apply to both */
 #audio-controls-overlay.active {
 	opacity: 1;
 	pointer-events: auto;
+}
+
+/* Ensure the overlay properly hides when inactive */
+#audio-controls-overlay:not(.active) {
+	opacity: 0;
+	pointer-events: none;
+	transform: translateY(100%);
 }
 
 .close-button {
 	position: absolute !important;
 	top: 8px !important;
 	right: 8px !important;
-	left: auto !important;
-	/* Ensure left isn't overriding right */
-	transform: none !important;
-	/* Prevent any transform from affecting position */
+	background: none;
+	border: none;
+	color: white;
+	font-size: 20px;
+	cursor: pointer;
+	padding: 4px 8px;
+	z-index: 1001;
 }
 
 .close-button:hover {
-	color: rgba(255, 255, 255, 0.8) !important;
+	color: rgba(255, 255, 255, 0.8);
 }
 
 .audio-controls-content {
@@ -48,6 +95,15 @@
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
+	padding-right: 40px;
+	/* Add padding to prevent overlap with close button */
+}
+
+#audio-time {
+	font-size: 0.8em;
+	white-space: nowrap;
+	margin-left: 10px;
+	/* Add some space between title and time */
 }
 
 #audio-title {
@@ -55,11 +111,6 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-}
-
-#audio-time {
-	font-size: 0.8em;
-	white-space: nowrap;
 }
 
 .audio-progress {

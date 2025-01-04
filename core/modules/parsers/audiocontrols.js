@@ -14,6 +14,13 @@ module-type: library
 			this.initializeMediaSession();
 			this.attachEventListeners();
 
+			// Add state monitoring
+			this.stateMonitorInterval = setInterval(() => {
+				if (this.currentAudio) {
+					this.updatePlayPauseState();
+				}
+			}, 100); // Check every 100ms
+
 			// Add scroll position tracking
 			window.addEventListener('scroll', () => {
 				requestAnimationFrame(() => {
@@ -60,6 +67,71 @@ module-type: library
     `;
 			document.body.appendChild(this.overlay);
 
+			// In createOverlay(), after creating this.overlay
+			let isDragging = false;
+			let currentX;
+			let currentY;
+			let initialX;
+			let initialY;
+			let xOffset = 0;
+			let yOffset = 0;
+
+			const isMobile = () => window.innerWidth < 768;
+
+			const dragStart = (e) => {
+				if (isMobile()) return; // Disable dragging on mobile
+
+				if (e.type === "mousedown") {
+					initialX = e.clientX - xOffset;
+					initialY = e.clientY - yOffset;
+				} else {
+					initialX = e.touches[0].clientX - xOffset;
+					initialY = e.touches[0].clientY - yOffset;
+				}
+
+				if (e.target === this.overlay || e.target.closest('.audio-controls-content')) {
+					isDragging = true;
+				}
+			};
+
+			const drag = (e) => {
+				if (isMobile() || !isDragging) return; // Disable dragging on mobile
+				if (isDragging) {
+					e.preventDefault();
+
+					if (e.type === "mousemove") {
+						currentX = e.clientX - initialX;
+						currentY = e.clientY - initialY;
+					} else {
+						currentX = e.touches[0].clientX - initialX;
+						currentY = e.touches[0].clientY - initialY;
+					}
+
+					xOffset = currentX;
+					yOffset = currentY;
+
+					setTranslate(currentX, currentY, this.overlay);
+				}
+			};
+
+			const dragEnd = () => {
+				isDragging = false;
+			};
+
+			const setTranslate = (xPos, yPos, el) => {
+				el.style.transform = `translate(${xPos}px, ${yPos}px)`;
+			};
+
+			// Add desktop event listeners
+			this.overlay.addEventListener('mousedown', dragStart);
+			document.addEventListener('mousemove', drag);
+			document.addEventListener('mouseup', dragEnd);
+
+			// Add mobile event listeners
+			this.overlay.addEventListener('touchstart', dragStart);
+			document.addEventListener('touchmove', drag);
+			document.addEventListener('touchend', dragEnd);
+
 			// Cache DOM elements
 			this.elements = {
 				title: document.getElementById('audio-title'),
@@ -75,26 +147,26 @@ module-type: library
 
 			// Add close button handler
 			this.elements.closeButton.addEventListener('click', (e) => {
-				console.log("Close button clicked");
-				console.log("Overlay classList before:", this.overlay.classList.toString());
-				console.log("Current audio state:", this.currentAudio?.paused);
+				e.preventDefault();
+				e.stopPropagation();
 
-				if (this.currentAudio) {
+				console.log("Close button clicked");
+
+				// Pause the audio if it's playing
+				if (this.currentAudio && !this.currentAudio.paused) {
 					this.currentAudio.pause();
 				}
 
+				// Remove active class and reset styles
+				this.overlay.style.opacity = '0';
+				this.overlay.style.pointerEvents = 'none';
 				this.overlay.classList.remove('active');
-				console.log("Overlay classList after:", this.overlay.classList.toString());
+
+				// Reset current audio
+				this.currentAudio = null;
 
 				// Force a reflow
 				void this.overlay.offsetWidth;
-
-				// Double-check if class was removed
-				if (this.overlay.classList.contains('active')) {
-					console.warn("Active class still present after removal attempt");
-					// Force remove again
-					this.overlay.classList.remove('active');
-				}
 			});
 
 			// Add continuous time updates
@@ -185,27 +257,36 @@ module-type: library
 			});
 		}
 
+		updatePlayPauseState() {
+			if (!this.currentAudio || !this.elements.playButton) return;
+
+			console.log("Updating play/pause state:", this.currentAudio.paused ? "paused" : "playing");
+			this.elements.playButton.innerHTML = this.currentAudio.paused ? '▶️' : '⏸️';
+		}
+
 		setupAudioElement(audio) {
 			console.log("Setting up new audio element");
 
 			audio.addEventListener('play', () => {
 				console.log("Audio play event triggered");
-				console.log("Audio source:", audio.currentSrc);
 				this.currentAudio = audio;
 				this.updateOverlay();
-				this.overlay.classList.add('active');
+				// Show overlay only when first playing
+				if (!this.overlay.classList.contains('active')) {
+					this.overlay.classList.add('active');
+				}
 				if (this.elements.playButton) {
-					console.log("Updating play button to pause");
 					this.elements.playButton.innerHTML = '⏸️';
 				}
 			});
 
+			// Modified pause event listener - only update button state
 			audio.addEventListener('pause', () => {
 				console.log("Audio pause event triggered");
 				if (this.elements.playButton) {
-					console.log("Updating play button to play");
 					this.elements.playButton.innerHTML = '▶️';
 				}
+				// Remove any code that affects overlay visibility
 			});
 
 			audio.addEventListener('timeupdate', () => {
@@ -250,6 +331,12 @@ module-type: library
 			const mins = Math.floor(seconds / 60);
 			const secs = Math.floor(seconds % 60);
 			return `${mins}:${secs.toString().padStart(2, '0')}`;
+		}
+
+		destroy() {
+			if (this.stateMonitorInterval) {
+				clearInterval(this.stateMonitorInterval);
+			}
 		}
 	}
 
