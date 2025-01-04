@@ -12,6 +12,41 @@ The video parser parses a video tiddler into an embeddable HTML element
 	/*global $tw: false */
 	"use strict";
 
+	// Add this to the top of videoparser.js
+	const BatchedUpdates = {
+		updates: {},
+		timeout: null,
+
+		queue: function (tiddlerTitle, fields) {
+			const currentTiddler = $tw.wiki.getTiddler(tiddlerTitle);
+			const hasChanged = Object.entries(fields).some(([field, value]) =>
+				currentTiddler?.fields[field] !== value
+			);
+
+			if (hasChanged) {
+				this.updates[tiddlerTitle] = this.updates[tiddlerTitle] || {};
+				Object.assign(this.updates[tiddlerTitle], fields);
+
+				if (this.timeout) clearTimeout(this.timeout);
+				this.timeout = setTimeout(() => this.flush(), 2000);
+			}
+		},
+
+		flush: function () {
+			const updates = Object.entries(this.updates).map(([title, fields]) => {
+				const tiddler = $tw.wiki.getTiddler(title);
+				return tiddler ? new $tw.Tiddler(tiddler, fields) : null;
+			}).filter(Boolean);
+
+			if (updates.length) {
+				$tw.wiki.addTiddlers(updates);
+			}
+
+			this.updates = {};
+			this.timeout = null;
+		}
+	};
+
 	// Debug logging helper
 	const debugLog = (category, message, data = {}) => {
 		console.log(`[VideoParser:${category}]`, message, data);
@@ -90,6 +125,98 @@ The video parser parses a video tiddler into an embeddable HTML element
 		{ width: 640, height: 360, bitrate: 500000 }
 	];
 
+	let currentQuality = QUALITY_LEVELS.length - 1; // Start with lowest quality
+
+	class VideoStreamManager {
+		constructor() {
+			this.chunkCache = new ChunkCache();
+			this.sourceBuffer = null;
+			this.mediaSource = null;
+		}
+
+		async fetchVideoSegment(src, startTime, duration, quality) {
+			try {
+				// Convert blob URL to actual video source if needed
+				const videoSrc = src.startsWith('blob:') ? src.split('?')[0] : src;
+				
+				// Properly serialize quality parameters
+				const qualityString = `width=${quality.width}&height=${quality.height}&bitrate=${quality.bitrate}`;
+				const url = `${videoSrc}?start=${startTime}&duration=${duration}&${qualityString}`;
+				
+				const response = await fetch(url);
+				if (!response.ok) {
+					throw new Error(`HTTP error! status: ${response.status}`);
+				}
+				return await response.arrayBuffer();
+			} catch (error) {
+				console.error('Error fetching video segment:', error);
+				throw error;
+			}
+		}
+
+		async loadSegment(video, startTime, duration, qualityIndex) {
+			try {
+				const quality = QUALITY_LEVELS[qualityIndex];
+				const segment = await this.fetchVideoSegment(video.src, startTime, duration, quality);
+				
+				if (this.sourceBuffer && !this.sourceBuffer.updating) {
+					await this.sourceBuffer.appendBuffer(segment);
+					return true;
+				}
+			} catch (error) {
+				console.error('Error loading segment:', error);
+				// Try lower quality if available
+				if (qualityIndex > 0) {
+					return this.loadSegment(video, startTime, duration, qualityIndex - 1);
+				}
+			}
+			return false;
+		}
+
+		async loadChunks(video, endChunk) {
+			for (let i = 0; i < endChunk; i++) {
+				const startTime = i * INITIAL_SEGMENT_DURATION;
+				await this.loadSegment(video, startTime, INITIAL_SEGMENT_DURATION, currentQuality);
+			}
+		}
+
+		setupMediaSource(video) {
+			this.mediaSource = new MediaSource();
+			video.src = URL.createObjectURL(this.mediaSource);
+
+			this.mediaSource.addEventListener('sourceopen', () => {
+				this.sourceBuffer = this.mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
+				
+				// Monitor buffer
+				video.addEventListener('timeupdate', () => {
+					const buffered = video.buffered;
+					if (buffered && buffered.length > 0) {
+						const bufferEnd = buffered.end(buffered.length - 1);
+						const currentTime = video.currentTime;
+						
+						if (bufferEnd - currentTime < MIN_BUFFER_SIZE) {
+							this.loadSegment(video, currentTime, INITIAL_SEGMENT_DURATION, currentQuality);
+						}
+					}
+				});
+			});
+		}
+	}
+
+	// Add this function near the top of the file
+	async function fetchVideoSegment(src, startTime, duration, quality) {
+		try {
+			const response = await fetch(`${src}?start=${startTime}&duration=${duration}&quality=${quality}`);
+			if (!response.ok) {
+				throw new Error(`HTTP error! status: ${response.status}`);
+			}
+			return await response.arrayBuffer();
+		} catch (error) {
+			console.error('Error fetching video segment:', error);
+			throw error;
+		}
+	}
+
 	var VideoParser = function (type, text, options) {
 		var element = {
 			type: "element",
@@ -118,40 +245,40 @@ The video parser parses a video tiddler into an embeddable HTML element
 		if ($tw.browser) {
 			const processedVideos = new WeakMap();
 			const bufferThreshold = 0.1; // 10% buffered before play
-			const TIMESTAMP_THRESHOLD = 2;
 
 			$tw.hooks.addHook("th-page-refreshed", function () {
 				setTimeout(function () {
 					Array.from(document.getElementsByClassName("tw-video-element")).forEach(function (video) {
 						if (!video.dataset.initialized) {
 							video.dataset.initialized = "true";
-							debugLog('Init', 'Initializing video player');
 
-							let lastSavedTime = 0;
-							let lastSaveTimestamp = 0;
-							let isInitializing = true;
-
-							function saveTimestamp() {
-								if (isInitializing) return;
-
+							// Only add timestamp listeners after video is buffered and ready
+							video.addEventListener('canplay', function () {
+								// Restore timestamp
 								const currentTiddler = video.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
-									if (tiddler) {
-										const currentTime = video.currentTime;
-										if (Math.abs(currentTime - lastSavedTime) >= TIMESTAMP_THRESHOLD) {
-											lastSavedTime = currentTime;
-											lastSaveTimestamp = Date.now();
-											$tw.wiki.addTiddler(new $tw.Tiddler(
-												tiddler,
-												{ [getVideoTimestampField(video)]: currentTime.toString() }
-											));
-											debugLog('Timestamp', `Saved position: ${currentTime}s`);
+									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
+									if (savedTime) video.currentTime = parseFloat(savedTime);
+								}
+
+								// Add timestamp saving on pause
+								video.addEventListener('pause', function () {
+									const currentTiddler = video.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
+										if (tiddler) {
+											BatchedUpdates.queue(tiddlerTitle, {
+												[getVideoTimestampField(video)]: video.currentTime.toString()
+											});
 										}
 									}
-								}
-							}
+								});
+							}, { once: true });
+
+							// Continue with existing buffering code
+							if (processedVideos.has(video)) return;
 
 							// Create loading overlay
 							const overlay = document.createElement('div');
@@ -160,70 +287,255 @@ The video parser parses a video tiddler into an embeddable HTML element
 							video.parentNode.style.position = 'relative';
 							video.parentNode.appendChild(overlay);
 
-							// Basic XHR request
+							video.preload = "auto";
+							video.autobuffer = true;
+
+							// Prevent play until buffered
+							video.addEventListener('play', function (e) {
+								if (video.buffered.length === 0 || (video.buffered.end(0) / video.duration) < bufferThreshold) {
+									console.log('Waiting for buffer...');
+									video.pause();
+								}
+							}, { passive: true });
+
+							// Monitor buffering
+							video.addEventListener('progress', function () {
+								if (video.buffered.length > 0) {
+									const progress = (video.buffered.end(0) / video.duration * 100).toFixed(2);
+									console.log(`Buffer: ${progress}%`);
+
+									// Adaptive buffer threshold
+									const networkSpeed = navigator.connection?.downlink || 10;
+									const adaptiveThreshold = Math.max(0.1, Math.min(0.3, 1 / networkSpeed));
+
+									if ((video.buffered.end(0) / video.duration) >= adaptiveThreshold) {
+										overlay.style.display = 'none';
+									}
+
+									// Preload next chunks
+									const currentTime = video.currentTime;
+									const chunksNeeded = Math.ceil((currentTime + 30) / CHUNK_SIZE); // 30s ahead
+									loadChunks(video.currentSrc, chunksNeeded);
+								}
+							}, { passive: true });
+
 							const xhr = new XMLHttpRequest();
-							xhr.open('GET', video.currentSrc);
+							xhr.open('GET', video.currentSrc, true);
 							xhr.responseType = 'blob';
 
+							// Add range support
+							xhr.setRequestHeader('Range', 'bytes=0-');
+							xhr.setRequestHeader('Cache-Control', 'no-cache');
+							xhr.setRequestHeader('Pragma', 'no-cache');
+
+							if ('connection' in navigator) {
+								const connectionSpeed = navigator.connection?.downlink || 10;
+								const initialChunkSize = Math.min(CHUNK_SIZE, connectionSpeed * 1024 * 100);
+								xhr.setRequestHeader('Range', `bytes=0-${initialChunkSize}`);
+							}
+
+							// Improved progress tracking
 							xhr.onprogress = function (e) {
 								if (e.lengthComputable) {
 									const progress = (e.loaded / e.total * 100).toFixed(2);
-									debugLog('Progress', `Loading: ${progress}%`);
-									overlay.innerHTML = `Loading ${progress}%`;
-									if (progress >= (bufferThreshold * 100)) {
-										overlay.style.display = 'none';
+									console.log(`Download: ${progress}%`);
+
+									if (overlay) {
+										overlay.innerHTML = `Loading ${progress}%`;
+										if (progress > (bufferThreshold * 100)) {
+											overlay.style.display = 'none';
+										}
 									}
 								}
 							};
 
 							xhr.onload = function () {
-								if (xhr.status === 200) {
+								if (xhr.status === 200 || xhr.status === 206) {
 									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
 									const url = URL.createObjectURL(blob);
+									video._blob = blob;
 									video.src = url;
-									debugLog('Load', 'Video data received');
+									processedVideos.set(video, {
+										blob: blob,
+										url: url
+									});
 
-									// Add timestamp restoration
-									video.addEventListener('loadedmetadata', function () {
-										debugLog('Metadata', 'Video metadata loaded');
+									// Add timestamp restoration after buffering
+									video.addEventListener('canplaythrough', function () {
 										const currentTiddler = video.closest('[data-tiddler-title]');
 										if (currentTiddler) {
 											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
 											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
 											if (savedTime) {
 												video.currentTime = parseFloat(savedTime);
-												lastSavedTime = parseFloat(savedTime);
-												debugLog('Timestamp', `Restored position: ${savedTime}s`);
 											}
 										}
-										isInitializing = false;
-										overlay.style.display = 'none';
 									}, { once: true });
 
-									video.addEventListener('pause', saveTimestamp);
-									video.addEventListener('seeked', saveTimestamp);
-
-									video.addEventListener('timeupdate', function () {
-										if (!isInitializing && Date.now() - lastSaveTimestamp > 1000) {
-											saveTimestamp();
+									// Handle seeking with passive listener
+									video.addEventListener('seeking', function () {
+										if (!video.src || video.src === '') {
+											video.src = URL.createObjectURL(video._blob);
 										}
+									}, { passive: true });
+
+									// Cleanup
+									const observer = new MutationObserver(function (mutations) {
+										mutations.forEach(function (mutation) {
+											if ([...mutation.removedNodes].includes(video)) {
+												URL.revokeObjectURL(url);
+												processedVideos.delete(video);
+												observer.disconnect();
+												if (overlay.parentNode) {
+													overlay.parentNode.removeChild(overlay);
+												}
+											}
+										});
 									});
-								} else {
-									debugLog('Error', `Failed to load video: HTTP ${xhr.status}`);
-									overlay.innerHTML = 'Error loading video';
+
+									observer.observe(video.parentNode, {
+										childList: true,
+										subtree: true
+									});
 								}
 							};
 
-							xhr.onerror = function () {
-								debugLog('Error', `Network error loading video`);
-								overlay.innerHTML = 'Error loading video';
+							xhr.send();
+
+							video.addEventListener('loadedmetadata', async () => {
+								requestAnimationFrame(async () => {
+									const xhr = new XMLHttpRequest();
+									// Encode the URL to handle spaces and special characters
+									const encodedUrl = encodeURI(video.currentSrc);
+									xhr.open('HEAD', encodedUrl);
+
+									xhr.onload = () => {
+										const observer = new MutationObserver((mutations) => {
+											requestAnimationFrame(() => {
+												mutations.forEach((mutation) => {
+													if (mutation.addedNodes.length) {
+														const overlay = mutation.target.querySelector('.play-overlay');
+														if (overlay) {
+															overlay.parentNode.removeChild(overlay);
+														}
+													}
+												});
+											});
+										});
+
+										observer.observe(video.parentNode, {
+											childList: true,
+											subtree: true
+										});
+									};
+
+									xhr.send();
+								});
+							}, { passive: true });
+
+							// Add to VideoParser initialization
+							const metrics = {
+								bufferCount: 0,
+								droppedFrames: 0,
+								loadTime: 0
 							};
 
-							xhr.send();
+							video.addEventListener('progress', function () {
+								const { isBuffered, bufferEnd } = getBufferState(video);
+								if (isBuffered) {
+									// Dynamic chunk size based on network conditions
+									const networkSpeed = navigator.connection?.downlink || 10;
+									const dynamicChunkSize = Math.min(
+										CHUNK_SIZE * 2,
+										Math.max(CHUNK_SIZE / 2, networkSpeed * 100 * 1024)
+									);
+
+									// Predictive loading based on playback patterns
+									const currentChunk = Math.floor(video.currentTime / (dynamicChunkSize / 1024 / 1024));
+									const playbackRate = video.playbackRate;
+									const predictedChunks = Math.ceil(playbackRate * BUFFER_AHEAD);
+
+									loadChunks(video.currentSrc, currentChunk + predictedChunks, dynamicChunkSize);
+
+									// Track performance
+									metrics.bufferCount++;
+									requestAnimationFrame(() => {
+										if (video.getVideoPlaybackQuality) {
+											metrics.droppedFrames = video.getVideoPlaybackQuality().droppedVideoFrames;
+										}
+									});
+								}
+							}, { passive: true });
+
+							// Add debug logging
+							video.addEventListener('progress', function () {
+								const { isBuffered, bufferEnd } = getBufferState(video);
+								if (isBuffered) {
+									// Network monitoring
+									const networkSpeed = navigator.connection?.downlink || 10;
+									debugLog('Network', `Speed detected: ${networkSpeed}Mbps`);
+
+									// Chunk calculations
+									const dynamicChunkSize = Math.min(
+										CHUNK_SIZE * 2,
+										Math.max(CHUNK_SIZE / 2, networkSpeed * 100 * 1024)
+									);
+									debugLog('Chunks', `Dynamic chunk size: ${(dynamicChunkSize / 1024 / 1024).toFixed(2)}MB`, {
+										networkSpeed,
+										baseSize: CHUNK_SIZE / 1024 / 1024
+									});
+
+									// Buffer state
+									debugLog('Buffer', `Current state`, {
+										bufferEnd,
+										duration: video.duration,
+										percentage: ((bufferEnd / video.duration) * 100).toFixed(2) + '%'
+									});
+
+									// Memory tracking
+									if (performance.memory) {
+										debugLog('Memory', `Usage stats`, {
+											heapSize: (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2) + 'MB',
+											cacheSize: (chunkCache.totalSize / 1024 / 1024).toFixed(2) + 'MB'
+										});
+									}
+
+									// Quality metrics
+									debugLog('Performance', `Playback metrics`, {
+										bufferCount: metrics.bufferCount,
+										droppedFrames: metrics.droppedFrames,
+										loadTime: metrics.loadTime
+									});
+								}
+							}, { passive: true });
+
+							// Monitor memory usage
+							setInterval(() => {
+								if (performance.memory) {
+									const memoryUsage = performance.memory.usedJSHeapSize / 1024 / 1024;
+									if (memoryUsage > 90) {
+										chunkCache.chunks.clear();
+										chunkCache.totalSize = 0;
+										chunkCache.lastAccessed.clear();
+									}
+								}
+							}, 30000);
+
+							// Enable streaming if supported
+							if ('MediaSource' in window && MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"')) {
+								const streamManager = new VideoStreamManager();
+								streamManager.setupMediaSource(video);
+							} else {
+								// Fallback to basic loading for unsupported browsers
+								video.preload = "metadata";
+								video.addEventListener('canplay', () => {
+									video.play();
+								});
+							}
 						}
 					});
 				}, 100);
-			});
+			}, { passive: true });
 		}
 
 		this.tree = [element];
@@ -272,26 +584,6 @@ The video parser parses a video tiddler into an embeddable HTML element
 			bufferStart: buffered.start(buffered.length - 1),
 			isBuffered: true
 		};
-	}
-
-	// Add fetch video segment function
-	async function fetchVideoSegment(src, startTime, duration, quality) {
-		const start = Math.floor(startTime * quality.bitrate / 8);
-		const end = Math.floor((startTime + duration) * quality.bitrate / 8);
-
-		try {
-			const response = await fetch(src, {
-				headers: {
-					Range: `bytes=${start}-${end}`
-				}
-			});
-
-			if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-			return await response.arrayBuffer();
-		} catch (error) {
-			debugLog('Error', `Failed to fetch segment: ${error.message}`);
-			throw error;
-		}
 	}
 
 	exports["video/ogg"] = VideoParser;
