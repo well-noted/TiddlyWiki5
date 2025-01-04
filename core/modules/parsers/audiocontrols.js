@@ -86,6 +86,10 @@ module-type: library
 			const dragStart = (e) => {
 				if (isMobile()) return; // Disable dragging on mobile
 
+				if (window.getSelection) {
+					window.getSelection().removeAllRanges();
+				}
+
 				if (e.type === "mousedown") {
 					initialX = e.clientX - xOffset;
 					initialY = e.clientY - yOffset;
