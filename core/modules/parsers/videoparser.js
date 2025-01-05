@@ -242,8 +242,8 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 	function getVideoTimestampField(video) {
 		const sourceElement = video.querySelector('source');
-		let originalSrc = sourceElement ?
-			sourceElement.getAttribute('src') :
+		let originalSrc = sourceElement ? 
+			sourceElement.getAttribute('src') : 
 			video.getAttribute('src');
 
 		let hash = 5381;
@@ -305,20 +305,36 @@ The video parser parses a video tiddler into an embeddable HTML element
 										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
 										const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
 										if (tiddler) {
-											BatchedUpdates.queue(tiddlerTitle, {
-												[getVideoTimestampField(video)]: video.currentTime.toString()
-											});
+											const timestampField = getVideoTimestampField(video);
+											const currentTime = video.currentTime;
+											
+											console.log(`[VideoParser] Video paused - Time: ${currentTime.toFixed(2)}s, Field: ${timestampField}, Tiddler: ${tiddlerTitle}`);
+
+									// Immediate save on pause
+											$tw.wiki.setText(tiddlerTitle, timestampField, null, currentTime.toString());
 										}
 									}
 								});
+
+								// Keep existing timeupdate for periodic saves
+								video.addEventListener('timeupdate', function () {
+									if (!this.seeking && 
+										(!this.lastUpdateTime || 
+										 (Date.now() - this.lastUpdateTime > 5000 && 
+										  Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+										// ...existing periodic update code...
+									}
+								});
+
 							}, { once: true });
 
-							// Inside video event listener setup
+							
 							video.addEventListener('timeupdate', function () {
-								if (!this.seeking &&
-									(!this.lastUpdateTime ||
-										(Date.now() - this.lastUpdateTime > 5000 &&
-											Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+								// Only update if not seeking AND either no last update OR 5+ seconds passed with 2+ second change
+								if (!this.seeking && 
+									(!this.lastUpdateTime || 
+									 (Date.now() - this.lastUpdateTime > 5000 && 
+									  Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
 
 									const currentTiddler = this.closest('[data-tiddler-title]');
 									if (currentTiddler) {
@@ -331,54 +347,90 @@ The video parser parses a video tiddler into an embeddable HTML element
 										});
 									}
 								}
-							});
-
-							video.addEventListener('pause', function () {
-								const currentTiddler = this.closest('[data-tiddler-title]');
-								if (currentTiddler) {
-									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									BatchedUpdates.queue(tiddlerTitle, {
-										[getVideoTimestampField(this)]: this.currentTime.toString()
-									});
-								}
-							});
-
-							// Add playing state handler
-							video.addEventListener('playing', function () {
-								this.isPlaying = true;
-							});
+							}, { passive: true });
 
 							video.addEventListener('pause', function () {
 								this.isPlaying = false;
 								const currentTiddler = this.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									Debug.log('Video paused - updating timestamp', { time: this.currentTime });
 									BatchedUpdates.queue(tiddlerTitle, {
 										[getVideoTimestampField(this)]: this.currentTime.toString()
 									});
 								}
 							});
 
-							video.addEventListener('timeupdate', function () {
-								if (this.isPlaying || this.seeking ||
-									(!this.lastUpdateTime ||
-										(Date.now() - this.lastUpdateTime > 5000 &&
-											Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+							video.addEventListener('playing', function () {
+								this.isPlaying = true;
+								Debug.log('Video playing state set');
+							});
 
+							video.addEventListener('timeupdate', function() {
+								const prevTime = this.lastKnownTime || 0;
+								const currentTime = this.currentTime;
+								const timeDiff = Math.abs(currentTime - prevTime);
+								
+								if (timeDiff > 2) {
 									const currentTiddler = this.closest('[data-tiddler-title]');
 									if (currentTiddler) {
 										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-										this.lastSavedTime = this.currentTime;
-										this.lastUpdateTime = Date.now();
+										const timestampField = getVideoTimestampField(this);
+										
+										console.log('[VideoParser] Time jump detected:', {
+											from: prevTime,
+											to: currentTime,
+											diff: timeDiff
+										});
+										
+										$tw.wiki.setText(
+											tiddlerTitle,
+											timestampField,
+											null,
+											currentTime.toString()
+										);
+									}
+								}
+								this.lastKnownTime = currentTime;
+							});
 
-										BatchedUpdates.queue(tiddlerTitle, {
-											[getVideoTimestampField(this)]: this.currentTime.toString()
+							video.addEventListener('seeking', function () {
+								console.log('[VideoParser] Seeking started at:', this.currentTime);
+								this.seekStartTime = this.currentTime;
+							});
+
+							video.addEventListener('seeked', function () {
+								const timeDiff = Math.abs(this.currentTime - (this.seekStartTime || 0));
+								console.log('[VideoParser] Seek completed:', {
+									startTime: this.seekStartTime,
+									endTime: this.currentTime,
+									diff: timeDiff
+								});
+
+								if (timeDiff > 2) {
+									const currentTiddler = this.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										const timestampField = getVideoTimestampField(this);
+
+										// Immediate save on significant seek
+										$tw.wiki.setText(
+											tiddlerTitle,
+											timestampField,
+											null,
+											this.currentTime.toString()
+										);
+
+										console.log('[VideoParser] Timestamp updated after seek:', {
+											tiddler: tiddlerTitle,
+											field: timestampField,
+											time: this.currentTime
 										});
 									}
 								}
 							});
 
-							// Continue with existing buffering code
+							
 							if (processedVideos.has(video)) return;
 
 							// Create loading overlay
@@ -396,59 +448,36 @@ The video parser parses a video tiddler into an embeddable HTML element
 								if (video.buffered.length === 0 || (video.buffered.end(0) / video.duration) < bufferThreshold) {
 									console.log('Waiting for buffer...');
 									video.pause();
-								}
-							}, { passive: true });
+                                }
+                            });
 
-							// Monitor buffering
-							video.addEventListener('progress', function () {
-								if (video.buffered.length > 0) {
-									const progress = (video.buffered.end(0) / video.duration * 100).toFixed(2);
-									console.log(`Buffer: ${progress}%`);
+                            // Monitor buffering
+                            video.addEventListener('progress', function () {
+                                if (video.buffered.length > 0) {
+                                    const bufferedRatio = video.buffered.end(0) / video.duration;
+                                    
+                                    // Adaptive buffer threshold
+                                    const networkSpeed = navigator.connection?.downlink || 10;
+                                    const adaptiveThreshold = Math.max(0.1, Math.min(0.3, 1 / networkSpeed));
 
-									// Adaptive buffer threshold
-									const networkSpeed = navigator.connection?.downlink || 10;
-									const adaptiveThreshold = Math.max(0.1, Math.min(0.3, 1 / networkSpeed));
+                                    if (bufferedRatio >= adaptiveThreshold) {
+                                        overlay.style.display = 'none';
+                                    }
 
-									if ((video.buffered.end(0) / video.duration) >= adaptiveThreshold) {
-										overlay.style.display = 'none';
-									}
+                                    // Preload next chunks
+                                    const currentTime = video.currentTime;
+                                    const chunksNeeded = Math.ceil((currentTime + 30) / CHUNK_SIZE);
+                                    loadChunks(video.currentSrc, chunksNeeded);
+                                }
+                            });
 
-									// Preload next chunks
-									const currentTime = video.currentTime;
-									const chunksNeeded = Math.ceil((currentTime + 30) / CHUNK_SIZE); // 30s ahead
-									loadChunks(video.currentSrc, chunksNeeded);
-								}
-							}, { passive: true });
+                            const xhr = new XMLHttpRequest();
+                            xhr.open('GET', video.currentSrc, true);
+                            xhr.responseType = 'blob';
 
-							const xhr = new XMLHttpRequest();
-							xhr.open('GET', video.currentSrc, true);
-							xhr.responseType = 'blob';
-
-							// Add range support
-							xhr.setRequestHeader('Range', 'bytes=0-');
-							xhr.setRequestHeader('Cache-Control', 'no-cache');
-							xhr.setRequestHeader('Pragma', 'no-cache');
-
-							if ('connection' in navigator) {
-								const connectionSpeed = navigator.connection?.downlink || 10;
-								const initialChunkSize = Math.min(CHUNK_SIZE, connectionSpeed * 1024 * 100);
-								xhr.setRequestHeader('Range', `bytes=0-${initialChunkSize}`);
-							}
-
-							// Improved progress tracking
-							xhr.onprogress = function (e) {
-								if (e.lengthComputable) {
-									const progress = (e.loaded / e.total * 100).toFixed(2);
-									console.log(`Download: ${progress}%`);
-
-									if (overlay) {
-										overlay.innerHTML = `Loading ${progress}%`;
-										if (progress > (bufferThreshold * 100)) {
-											overlay.style.display = 'none';
-										}
-									}
-								}
-							};
+                            // Add range support with single cache control
+                            xhr.setRequestHeader('Range', 'bytes=0-');
+                            xhr.setRequestHeader('Cache-Control', 'no-cache, no-store');
 
 							xhr.onload = function () {
 								if (xhr.status === 200 || xhr.status === 206) {
