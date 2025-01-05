@@ -226,19 +226,6 @@ The video parser parses a video tiddler into an embeddable HTML element
 		}
 	}
 
-	async function fetchVideoSegment(src, startTime, duration, quality) {
-		try {
-			const response = await fetch(`${src}?start=${startTime}&duration=${duration}&quality=${quality}`);
-			if (!response.ok) {
-				throw new Error(`HTTP error! status: ${response.status}`);
-			}
-			return await response.arrayBuffer();
-		} catch (error) {
-			console.error('Error fetching video segment:', error);
-			throw error;
-		}
-	}
-
 
 	function getVideoTimestampField(video) {
 		const sourceElement = video.querySelector('source');
@@ -288,7 +275,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 						if (!video.dataset.initialized) {
 							video.dataset.initialized = "true";
 
-							// Only add timestamp listeners after video is buffered and ready
+							// Load timestamp listeners only after video is buffered and ready
 							video.addEventListener('canplay', function () {
 								// Restore timestamp
 								const currentTiddler = video.closest('[data-tiddler-title]');
@@ -298,7 +285,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 									if (savedTime) video.currentTime = parseFloat(savedTime);
 								}
 
-								// Add timestamp saving on pause
+								// Immediate timestamp saving on pause
 								video.addEventListener('pause', function () {
 									const currentTiddler = video.closest('[data-tiddler-title]');
 									if (currentTiddler) {
@@ -310,79 +297,49 @@ The video parser parses a video tiddler into an embeddable HTML element
 											
 											console.log(`[VideoParser] Video paused - Time: ${currentTime.toFixed(2)}s, Field: ${timestampField}, Tiddler: ${tiddlerTitle}`);
 
-									// Immediate save on pause
 											$tw.wiki.setText(tiddlerTitle, timestampField, null, currentTime.toString());
 										}
 									}
 								});
 
-								// Keep existing timeupdate for periodic saves
-								video.addEventListener('timeupdate', function () {
-									if (!this.seeking && 
-										(!this.lastUpdateTime || 
-										 (Date.now() - this.lastUpdateTime > 5000 && 
-										  Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
-										// ...existing periodic update code...
-									}
-								});
-
 							}, { once: true });
 
-							
 							video.addEventListener('timeupdate', function () {
+								const currentTime = this.currentTime;
+								const prevTime = this.lastKnownTime || 0;
+								const timeDiff = Math.abs(currentTime - prevTime);
+
 								// Only update if not seeking AND either no last update OR 5+ seconds passed with 2+ second change
-								if (!this.seeking && 
-									(!this.lastUpdateTime || 
-									 (Date.now() - this.lastUpdateTime > 5000 && 
-									  Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+								if (!this.seeking &&
+									(!this.lastUpdateTime ||
+										(Date.now() - this.lastUpdateTime > 5000 &&
+											Math.abs(currentTime - (this.lastSavedTime || 0)) > 2))) {
 
 									const currentTiddler = this.closest('[data-tiddler-title]');
 									if (currentTiddler) {
 										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-										this.lastSavedTime = this.currentTime;
+										this.lastSavedTime = currentTime;
 										this.lastUpdateTime = Date.now();
 
 										BatchedUpdates.queue(tiddlerTitle, {
-											[getVideoTimestampField(this)]: this.currentTime.toString()
+											[getVideoTimestampField(this)]: currentTime.toString()
 										});
 									}
 								}
-							}, { passive: true });
 
-							video.addEventListener('pause', function () {
-								this.isPlaying = false;
-								const currentTiddler = this.closest('[data-tiddler-title]');
-								if (currentTiddler) {
-									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									Debug.log('Video paused - updating timestamp', { time: this.currentTime });
-									BatchedUpdates.queue(tiddlerTitle, {
-										[getVideoTimestampField(this)]: this.currentTime.toString()
-									});
-								}
-							});
-
-							video.addEventListener('playing', function () {
-								this.isPlaying = true;
-								Debug.log('Video playing state set');
-							});
-
-							video.addEventListener('timeupdate', function() {
-								const prevTime = this.lastKnownTime || 0;
-								const currentTime = this.currentTime;
-								const timeDiff = Math.abs(currentTime - prevTime);
-								
+								// Update immediately when seeking behavior is detected
 								if (timeDiff > 2) {
 									const currentTiddler = this.closest('[data-tiddler-title]');
 									if (currentTiddler) {
 										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
 										const timestampField = getVideoTimestampField(this);
-										
+
 										console.log('[VideoParser] Time jump detected:', {
 											from: prevTime,
 											to: currentTime,
 											diff: timeDiff
 										});
-										
+
 										$tw.wiki.setText(
 											tiddlerTitle,
 											timestampField,
@@ -392,42 +349,16 @@ The video parser parses a video tiddler into an embeddable HTML element
 									}
 								}
 								this.lastKnownTime = currentTime;
+							}, { passive: true });
+							
+							video.addEventListener('playing', function () {
+								this.isPlaying = true;
+								Debug.log('Video playing state set');
 							});
 
 							video.addEventListener('seeking', function () {
 								console.log('[VideoParser] Seeking started at:', this.currentTime);
 								this.seekStartTime = this.currentTime;
-							});
-
-							video.addEventListener('seeked', function () {
-								const timeDiff = Math.abs(this.currentTime - (this.seekStartTime || 0));
-								console.log('[VideoParser] Seek completed:', {
-									startTime: this.seekStartTime,
-									endTime: this.currentTime,
-									diff: timeDiff
-								});
-
-								if (timeDiff > 2) {
-									const currentTiddler = this.closest('[data-tiddler-title]');
-									if (currentTiddler) {
-										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-										const timestampField = getVideoTimestampField(this);
-
-										// Immediate save on significant seek
-										$tw.wiki.setText(
-											tiddlerTitle,
-											timestampField,
-											null,
-											this.currentTime.toString()
-										);
-
-										console.log('[VideoParser] Timestamp updated after seek:', {
-											tiddler: tiddlerTitle,
-											field: timestampField,
-											time: this.currentTime
-										});
-									}
-								}
 							});
 
 							
@@ -448,36 +379,59 @@ The video parser parses a video tiddler into an embeddable HTML element
 								if (video.buffered.length === 0 || (video.buffered.end(0) / video.duration) < bufferThreshold) {
 									console.log('Waiting for buffer...');
 									video.pause();
-                                }
-                            });
+								}
+							}, { passive: true });
 
-                            // Monitor buffering
-                            video.addEventListener('progress', function () {
-                                if (video.buffered.length > 0) {
-                                    const bufferedRatio = video.buffered.end(0) / video.duration;
-                                    
-                                    // Adaptive buffer threshold
-                                    const networkSpeed = navigator.connection?.downlink || 10;
-                                    const adaptiveThreshold = Math.max(0.1, Math.min(0.3, 1 / networkSpeed));
+							// Monitor buffering
+							video.addEventListener('progress', function () {
+								if (video.buffered.length > 0) {
+									const progress = (video.buffered.end(0) / video.duration * 100).toFixed(2);
+									console.log(`Buffer: ${progress}%`);
 
-                                    if (bufferedRatio >= adaptiveThreshold) {
-                                        overlay.style.display = 'none';
-                                    }
+									// Adaptive buffer threshold
+									const networkSpeed = navigator.connection?.downlink || 10;
+									const adaptiveThreshold = Math.max(0.1, Math.min(0.3, 1 / networkSpeed));
 
-                                    // Preload next chunks
-                                    const currentTime = video.currentTime;
-                                    const chunksNeeded = Math.ceil((currentTime + 30) / CHUNK_SIZE);
-                                    loadChunks(video.currentSrc, chunksNeeded);
-                                }
-                            });
+									if ((video.buffered.end(0) / video.duration) >= adaptiveThreshold) {
+										overlay.style.display = 'none';
+									}
 
-                            const xhr = new XMLHttpRequest();
-                            xhr.open('GET', video.currentSrc, true);
-                            xhr.responseType = 'blob';
+									// Preload next chunks
+									const currentTime = video.currentTime;
+									const chunksNeeded = Math.ceil((currentTime + 30) / CHUNK_SIZE); // 30s ahead
+									loadChunks(video.currentSrc, chunksNeeded);
+								}
+							}, { passive: true });
 
-                            // Add range support with single cache control
-                            xhr.setRequestHeader('Range', 'bytes=0-');
-                            xhr.setRequestHeader('Cache-Control', 'no-cache, no-store');
+							const xhr = new XMLHttpRequest();
+							xhr.open('GET', video.currentSrc, true);
+							xhr.responseType = 'blob';
+
+							// Add range support
+							xhr.setRequestHeader('Range', 'bytes=0-');
+							xhr.setRequestHeader('Cache-Control', 'no-cache');
+							xhr.setRequestHeader('Pragma', 'no-cache');
+
+							if ('connection' in navigator) {
+								const connectionSpeed = navigator.connection?.downlink || 10;
+								const initialChunkSize = Math.min(CHUNK_SIZE, connectionSpeed * 1024 * 100);
+								xhr.setRequestHeader('Range', `bytes=0-${initialChunkSize}`);
+							}
+
+							// Improved progress tracking
+							xhr.onprogress = function (e) {
+								if (e.lengthComputable) {
+									const progress = (e.loaded / e.total * 100).toFixed(2);
+									console.log(`Download: ${progress}%`);
+
+									if (overlay) {
+										overlay.innerHTML = `Loading ${progress}%`;
+										if (progress > (bufferThreshold * 100)) {
+											overlay.style.display = 'none';
+										}
+									}
+								}
+							};
 
 							xhr.onload = function () {
 								if (xhr.status === 200 || xhr.status === 206) {
@@ -542,7 +496,6 @@ The video parser parses a video tiddler into an embeddable HTML element
 								});
 							}, { passive: true });
 
-							// Add to VideoParser initialization
 							const metrics = {
 								bufferCount: 0,
 								droppedFrames: 0,
@@ -576,7 +529,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 								}
 							}, { passive: true });
 
-							// Add debug logging
+							// Debug logging
 							video.addEventListener('progress', function () {
 								const { isBuffered, bufferEnd } = getBufferState(video);
 								if (isBuffered) {
@@ -630,7 +583,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 								}
 							}, 30000);
 
-							// Enable streaming if supported
+							// Enable streaming, if supported
 							if ('MediaSource' in window && MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"')) {
 								const streamManager = new VideoStreamManager();
 								streamManager.setupMediaSource(video);
