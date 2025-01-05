@@ -352,11 +352,6 @@ module-type: parser
 								// Set up basic controls
 								navigator.mediaSession.setActionHandler('play', () => audio.play());
 								navigator.mediaSession.setActionHandler('pause', () => audio.pause());
-								navigator.mediaSession.setActionHandler('seekto', (details) => {
-									if (details.seekTime) {
-										audioElement.currentTime = details.seekTime;
-									}
-								});
 
 								// Set up skip controls using previoustrack/nexttrack
 								navigator.mediaSession.setActionHandler('previoustrack', skipBackward);
@@ -376,7 +371,7 @@ module-type: parser
 									});
 								});
 
-								// Update playback state and position for audio controls overlay
+								// Add these right after the Media Session API initialization
 								audio.addEventListener('play', function () {
 									Debug.log('Play event triggered - checking AudioControls');
 									if (!window.audioControls) {
@@ -410,6 +405,7 @@ module-type: parser
 
 								audio.addEventListener('pause', function () {
 									Debug.log('Pause event triggered');
+									// Only update play button state, don't hide overlay
 									if (window.audioControls && window.audioControls.elements.playButton) {
 										window.audioControls.elements.playButton.innerHTML = '▶️';
 									}

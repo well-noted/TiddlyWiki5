@@ -12,7 +12,8 @@ The video parser parses a video tiddler into an embeddable HTML element
 	/*global $tw: false */
 	"use strict";
 
-	// Add this to the top of videoparser.js
+	const VIDEO_STATE = new WeakMap();
+
 	const BatchedUpdates = {
 		updates: {},
 		timeout: null,
@@ -47,9 +48,31 @@ The video parser parses a video tiddler into an embeddable HTML element
 		}
 	};
 
-	// Debug logging helper
-	const debugLog = (category, message, data = {}) => {
-		console.log(`[VideoParser:${category}]`, message, data);
+	const Debug = {
+		enabled: true,
+		prefix: '🎥 [VideoParser]',
+
+		log: function (category, message, data = {}) {
+			if (!this.enabled) return;
+			const timestamp = performance.now().toFixed(2);
+			console.log(`${this.prefix} [${timestamp}ms] [${category}] ${message}`, data);
+		},
+
+		state: function (video, event = '') {
+			if (!this.enabled) return;
+			this.log('State', `${event}`, {
+				currentTime: video.currentTime?.toFixed(2),
+				seeking: video.seeking,
+				readyState: video.readyState,
+				paused: video.paused,
+				buffered: Array.from(video.buffered).map(i => ({
+					start: video.buffered.start(i),
+					end: video.buffered.end(i)
+				})),
+				dataset: { ...video.dataset },
+				error: video.error
+			});
+		}
 	};
 
 	// Add helper function at top
@@ -138,11 +161,11 @@ The video parser parses a video tiddler into an embeddable HTML element
 			try {
 				// Convert blob URL to actual video source if needed
 				const videoSrc = src.startsWith('blob:') ? src.split('?')[0] : src;
-				
+
 				// Properly serialize quality parameters
 				const qualityString = `width=${quality.width}&height=${quality.height}&bitrate=${quality.bitrate}`;
 				const url = `${videoSrc}?start=${startTime}&duration=${duration}&${qualityString}`;
-				
+
 				const response = await fetch(url);
 				if (!response.ok) {
 					throw new Error(`HTTP error! status: ${response.status}`);
@@ -158,7 +181,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 			try {
 				const quality = QUALITY_LEVELS[qualityIndex];
 				const segment = await this.fetchVideoSegment(video.src, startTime, duration, quality);
-				
+
 				if (this.sourceBuffer && !this.sourceBuffer.updating) {
 					await this.sourceBuffer.appendBuffer(segment);
 					return true;
@@ -186,14 +209,14 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 			this.mediaSource.addEventListener('sourceopen', () => {
 				this.sourceBuffer = this.mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
-				
+
 				// Monitor buffer
 				video.addEventListener('timeupdate', () => {
 					const buffered = video.buffered;
 					if (buffered && buffered.length > 0) {
 						const bufferEnd = buffered.end(buffered.length - 1);
 						const currentTime = video.currentTime;
-						
+
 						if (bufferEnd - currentTime < MIN_BUFFER_SIZE) {
 							this.loadSegment(video, currentTime, INITIAL_SEGMENT_DURATION, currentQuality);
 						}
@@ -203,7 +226,6 @@ The video parser parses a video tiddler into an embeddable HTML element
 		}
 	}
 
-	// Add this function near the top of the file
 	async function fetchVideoSegment(src, startTime, duration, quality) {
 		try {
 			const response = await fetch(`${src}?start=${startTime}&duration=${duration}&quality=${quality}`);
@@ -215,6 +237,20 @@ The video parser parses a video tiddler into an embeddable HTML element
 			console.error('Error fetching video segment:', error);
 			throw error;
 		}
+	}
+
+
+	function getVideoTimestampField(video) {
+		const sourceElement = video.querySelector('source');
+		let originalSrc = sourceElement ?
+			sourceElement.getAttribute('src') :
+			video.getAttribute('src');
+
+		let hash = 5381;
+		for (let i = 0; i < originalSrc.length; i++) {
+			hash = (hash * 33) ^ originalSrc.charCodeAt(i);
+		}
+		return `video-timestamp-${Math.abs(hash >>> 0)}`;
 	}
 
 	var VideoParser = function (type, text, options) {
@@ -276,6 +312,71 @@ The video parser parses a video tiddler into an embeddable HTML element
 									}
 								});
 							}, { once: true });
+
+							// Inside video event listener setup
+							video.addEventListener('timeupdate', function () {
+								if (!this.seeking &&
+									(!this.lastUpdateTime ||
+										(Date.now() - this.lastUpdateTime > 5000 &&
+											Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+
+									const currentTiddler = this.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										this.lastSavedTime = this.currentTime;
+										this.lastUpdateTime = Date.now();
+
+										BatchedUpdates.queue(tiddlerTitle, {
+											[getVideoTimestampField(this)]: this.currentTime.toString()
+										});
+									}
+								}
+							});
+
+							video.addEventListener('pause', function () {
+								const currentTiddler = this.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									BatchedUpdates.queue(tiddlerTitle, {
+										[getVideoTimestampField(this)]: this.currentTime.toString()
+									});
+								}
+							});
+
+							// Add playing state handler
+							video.addEventListener('playing', function () {
+								this.isPlaying = true;
+							});
+
+							video.addEventListener('pause', function () {
+								this.isPlaying = false;
+								const currentTiddler = this.closest('[data-tiddler-title]');
+								if (currentTiddler) {
+									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+									BatchedUpdates.queue(tiddlerTitle, {
+										[getVideoTimestampField(this)]: this.currentTime.toString()
+									});
+								}
+							});
+
+							video.addEventListener('timeupdate', function () {
+								if (this.isPlaying || this.seeking ||
+									(!this.lastUpdateTime ||
+										(Date.now() - this.lastUpdateTime > 5000 &&
+											Math.abs(this.currentTime - (this.lastSavedTime || 0)) > 2))) {
+
+									const currentTiddler = this.closest('[data-tiddler-title]');
+									if (currentTiddler) {
+										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+										this.lastSavedTime = this.currentTime;
+										this.lastUpdateTime = Date.now();
+
+										BatchedUpdates.queue(tiddlerTitle, {
+											[getVideoTimestampField(this)]: this.currentTime.toString()
+										});
+									}
+								}
+							});
 
 							// Continue with existing buffering code
 							if (processedVideos.has(video)) return;
@@ -351,52 +452,31 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 							xhr.onload = function () {
 								if (xhr.status === 200 || xhr.status === 206) {
-									const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
-									const url = URL.createObjectURL(blob);
-									video._blob = blob;
-									video.src = url;
-									processedVideos.set(video, {
-										blob: blob,
-										url: url
-									});
+									// Only process if not already initialized
+									if (!processedVideos.has(video)) {
+										const blob = new Blob([xhr.response], { type: video.type || 'video/mp4' });
+										const url = URL.createObjectURL(blob);
+										video._blob = blob;
+										video.src = url;
+										processedVideos.set(video, {
+											blob: blob,
+											url: url,
+											initialized: true
+										});
 
-									// Add timestamp restoration after buffering
-									video.addEventListener('canplaythrough', function () {
-										const currentTiddler = video.closest('[data-tiddler-title]');
-										if (currentTiddler) {
-											const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-											const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
-											if (savedTime) {
-												video.currentTime = parseFloat(savedTime);
-											}
-										}
-									}, { once: true });
-
-									// Handle seeking with passive listener
-									video.addEventListener('seeking', function () {
-										if (!video.src || video.src === '') {
-											video.src = URL.createObjectURL(video._blob);
-										}
-									}, { passive: true });
-
-									// Cleanup
-									const observer = new MutationObserver(function (mutations) {
-										mutations.forEach(function (mutation) {
-											if ([...mutation.removedNodes].includes(video)) {
-												URL.revokeObjectURL(url);
-												processedVideos.delete(video);
-												observer.disconnect();
-												if (overlay.parentNode) {
-													overlay.parentNode.removeChild(overlay);
+										// Only add timestamp restoration on initial load
+										video.addEventListener('canplaythrough', function onCanPlay() {
+											const currentTiddler = video.closest('[data-tiddler-title]');
+											if (currentTiddler) {
+												const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
+												const savedTime = $tw.wiki.getTiddler(tiddlerTitle)?.fields[getVideoTimestampField(video)];
+												if (savedTime) {
+													video.currentTime = parseFloat(savedTime);
 												}
 											}
+											video.removeEventListener('canplaythrough', onCanPlay);
 										});
-									});
-
-									observer.observe(video.parentNode, {
-										childList: true,
-										subtree: true
-									});
+									}
 								}
 							};
 
@@ -473,20 +553,20 @@ The video parser parses a video tiddler into an embeddable HTML element
 								if (isBuffered) {
 									// Network monitoring
 									const networkSpeed = navigator.connection?.downlink || 10;
-									debugLog('Network', `Speed detected: ${networkSpeed}Mbps`);
+									Debug.log('Network', `Speed detected: ${networkSpeed}Mbps`);
 
 									// Chunk calculations
 									const dynamicChunkSize = Math.min(
 										CHUNK_SIZE * 2,
 										Math.max(CHUNK_SIZE / 2, networkSpeed * 100 * 1024)
 									);
-									debugLog('Chunks', `Dynamic chunk size: ${(dynamicChunkSize / 1024 / 1024).toFixed(2)}MB`, {
+									Debug.log('Chunks', `Dynamic chunk size: ${(dynamicChunkSize / 1024 / 1024).toFixed(2)}MB`, {
 										networkSpeed,
 										baseSize: CHUNK_SIZE / 1024 / 1024
 									});
 
 									// Buffer state
-									debugLog('Buffer', `Current state`, {
+									Debug.log('Buffer', `Current state`, {
 										bufferEnd,
 										duration: video.duration,
 										percentage: ((bufferEnd / video.duration) * 100).toFixed(2) + '%'
@@ -494,14 +574,14 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 									// Memory tracking
 									if (performance.memory) {
-										debugLog('Memory', `Usage stats`, {
+										Debug.log('Memory', `Usage stats`, {
 											heapSize: (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2) + 'MB',
 											cacheSize: (chunkCache.totalSize / 1024 / 1024).toFixed(2) + 'MB'
 										});
 									}
 
 									// Quality metrics
-									debugLog('Performance', `Playback metrics`, {
+									Debug.log('Performance', `Playback metrics`, {
 										bufferCount: metrics.bufferCount,
 										droppedFrames: metrics.droppedFrames,
 										loadTime: metrics.loadTime
@@ -526,12 +606,19 @@ The video parser parses a video tiddler into an embeddable HTML element
 								const streamManager = new VideoStreamManager();
 								streamManager.setupMediaSource(video);
 							} else {
-								// Fallback to basic loading for unsupported browsers
-								video.preload = "metadata";
-								video.addEventListener('canplay', () => {
-									video.play();
-								});
+								initializeVideo(video);
 							}
+
+							// Add event listeners
+							video.addEventListener('loadstart', () => Debug.state(video, 'loadstart'), { passive: true });
+							video.addEventListener('loadedmetadata', () => Debug.state(video, 'loadedmetadata'), { passive: true });
+							video.addEventListener('canplay', () => Debug.state(video, 'canplay'), { passive: true });
+							video.addEventListener('play', () => Debug.state(video, 'play'), { passive: true });
+							video.addEventListener('seeking', () => Debug.state(video, 'seeking'), { passive: true });
+							video.addEventListener('seeked', () => Debug.state(video, 'seeked'), { passive: true });
+							video.addEventListener('timeupdate', () => Debug.state(video, 'timeupdate'), { passive: true });
+							video.addEventListener('waiting', () => Debug.state(video, 'waiting'), { passive: true });
+							video.addEventListener('error', () => Debug.state(video, 'error'), { passive: true });
 						}
 					});
 				}, 100);
@@ -545,7 +632,7 @@ The video parser parses a video tiddler into an embeddable HTML element
 	// Optimized chunk loading
 	async function loadChunks(src, endChunk, dynamicChunkSize = CHUNK_SIZE) {
 		try {
-			debugLog('Chunks', `Loading chunks up to ${endChunk}`);
+			Debug.log('Chunks', `Loading chunks up to ${endChunk}`);
 			for (let i = 0; i < endChunk; i++) {
 				const chunkKey = `${src}-${i}`;
 				if (!chunkCache.has(chunkKey)) {
@@ -559,12 +646,12 @@ The video parser parses a video tiddler into an embeddable HTML element
 					if (response.ok) {
 						const chunk = await response.arrayBuffer();
 						chunkCache.set(chunkKey, chunk);
-						debugLog('Chunks', `Loaded chunk ${i}`, { size: chunk.byteLength });
+						Debug.log('Chunks', `Loaded chunk ${i}`, { size: chunk.byteLength });
 					}
 				}
 			}
 		} catch (error) {
-			debugLog('Error', `Failed to load chunks: ${error.message}`);
+			Debug.log('Error', `Failed to load chunks: ${error.message}`);
 		}
 	}
 
@@ -584,6 +671,53 @@ The video parser parses a video tiddler into an embeddable HTML element
 			bufferStart: buffered.start(buffered.length - 1),
 			isBuffered: true
 		};
+	}
+
+	function initializeVideo(video) {
+		// Get or create state
+		let state = VIDEO_STATE.get(video);
+		if (!state) {
+			state = {
+				initialTime: video.currentTime || 0,
+				hasInitialized: false,
+				lastChunkLoad: 0,
+				preventReload: false
+			};
+			VIDEO_STATE.set(video, state);
+		}
+
+		// Block reloads after initialization
+		const preventReload = (e) => {
+			if (state.preventReload) {
+				Debug.log('Load', 'Preventing reload');
+				e.preventDefault();
+				e.stopPropagation();
+				return false;
+			}
+		};
+
+		// Preserve state across saves
+		video.addEventListener('beforeunload', () => {
+			state.initialTime = video.currentTime;
+		});
+
+		// Handle initialization once
+		const handleInit = () => {
+			if (state.hasInitialized) return;
+
+			Debug.log('Init', 'Initializing video', { initialTime: state.initialTime });
+			state.hasInitialized = true;
+			state.preventReload = true;
+
+			if (state.initialTime > 0) {
+				video.currentTime = state.initialTime;
+			}
+		};
+
+		// Event listeners
+		video.addEventListener('loadstart', preventReload, true);
+		video.addEventListener('load', preventReload, true);
+		video.addEventListener('loadedmetadata', handleInit, { once: true });
 	}
 
 	exports["video/ogg"] = VideoParser;
