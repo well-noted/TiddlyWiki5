@@ -72,7 +72,7 @@ module-type: library
     `;
 			document.body.appendChild(this.overlay);
 
-			// In createOverlay(), after creating this.overlay
+			// Add drag functionality
 			let isDragging = false;
 			let currentX;
 			let currentY;
@@ -295,7 +295,6 @@ module-type: library
 				if (this.elements.playButton) {
 					this.elements.playButton.innerHTML = '▶️';
 				}
-				// Remove any code that affects overlay visibility
 			});
 
 			audio.addEventListener('timeupdate', () => {
