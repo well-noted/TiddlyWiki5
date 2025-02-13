@@ -81,17 +81,19 @@ Bag <$text text={{{ [<bag-name>]}}}/>
 <!-- Move tiddlers form -->
 <form action="tiddlers/" method="post" class="mws-form" enctype="multipart/form-data">
     <div class="mws-form-heading">Move Selected Tiddlers</div>
-    
     <input type="hidden" name="operation" value="move"/>
     <input type="hidden" name="source-bag" value=<<bag-name>>/>
-    
+
     <div class="checkbox-controls">
         <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = true)" class="button">Select All</a>
         <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = false)" class="button">Deselect All</a>
     </div>
 
-    <<renderPagination>>
-    <<renderTiddlerList>>
+    <!-- Encapsulate the pagination and tiddler list to isolate their variables -->
+    <$set name="localScope" filter="[all[current]]">
+        <<renderPagination>>
+        <<renderTiddlerList>>
+    </$set>
 
     <div class="mws-form-field">
         <label>Target Bag</label>
