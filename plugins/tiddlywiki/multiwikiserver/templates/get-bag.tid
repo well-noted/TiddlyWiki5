@@ -39,7 +39,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
         <input type="checkbox" name="selected_tiddlers" value=<<currentTiddler>>/>
         <$link to=<<currentTiddler>>><<currentTiddler>></$link>
     </div>
-    </<$list>
+    </$list>
 </div>
 </$let>
 </$vars>
