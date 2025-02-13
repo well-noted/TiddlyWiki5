@@ -82,16 +82,17 @@ module-type: parser
 	};
 
 	function getAudioTimestampField(audio) {
+		const currentTiddler = audio.closest('[data-tiddler-title]');
+		if (!currentTiddler) return null;
+
+		const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
 		const sourceElement = audio.querySelector('source');
-		let originalSrc = sourceElement ?
+		const audioSrc = sourceElement ?
 			sourceElement.getAttribute('src') :
 			audio.getAttribute('src');
 
-		let hash = 5381;
-		for (let i = 0; i < originalSrc.length; i++) {
-			hash = (hash * 33) ^ originalSrc.charCodeAt(i);
-		}
-		return `audio-timestamp-${Math.abs(hash >>> 0)}`;
+		// The src already contains the correct tiddler reference
+		return `timecode-${audioSrc}.${tiddlerTitle}`;
 	}
 
 	var AudioParser = function (type, text, options) {
@@ -443,23 +444,30 @@ module-type: parser
 								const currentTiddler = this.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									const savedTime = $tw.wiki.getTiddler(tiddlerTitle)
-										?.fields[getAudioTimestampField(this)];
-									if (savedTime && this.currentTime < 0.1) {
-										Debug.log(`Restoring saved time: ${savedTime}`);
-										this.currentTime = parseFloat(savedTime);
+									const timestampField = getAudioTimestampField(this, tiddlerTitle);
+									const tiddler = $tw.wiki.getTiddler(tiddlerTitle);
+									if (tiddler && tiddler.fields[timestampField]) {
+										const savedTime = parseFloat(tiddler.fields[timestampField]);
+										if (!isNaN(savedTime) && this.currentTime < 0.1) {
+											Debug.log(`Restoring saved time: ${savedTime}`);
+											this.currentTime = savedTime;
+										}
 									}
 								}
 							});
 
 							audio.addEventListener('pause', function () {
-								Debug.log('Pause event triggered');
 								const currentTiddler = this.closest('[data-tiddler-title]');
 								if (currentTiddler) {
 									const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-									BatchedUpdates.queue(tiddlerTitle, {
-										[getAudioTimestampField(this)]: this.currentTime.toString()
-									});
+									const timestampField = getAudioTimestampField(this, tiddlerTitle);
+
+									$tw.wiki.setText(
+										tiddlerTitle,
+										timestampField,
+										null,
+										this.currentTime.toString()
+									);
 								}
 							});
 
@@ -472,12 +480,28 @@ module-type: parser
 									const currentTiddler = this.closest('[data-tiddler-title]');
 									if (currentTiddler) {
 										const tiddlerTitle = currentTiddler.getAttribute('data-tiddler-title');
-										this.lastSavedTime = this.currentTime;
-										this.lastUpdateTime = Date.now();
+										const sourceElement = this.querySelector('source');
+										const audioSrc = sourceElement ?
+											sourceElement.getAttribute('src') :
+											this.getAttribute('src');
 
-										BatchedUpdates.queue(tiddlerTitle, {
-											[getAudioTimestampField(this)]: this.currentTime.toString()
+										// Find the source tiddler
+										const sourceTiddler = Object.keys($tw.wiki.getTiddlers()).find(title => {
+											const tiddler = $tw.wiki.getTiddler(title);
+											return tiddler && tiddler.fields._canonical_uri === audioSrc;
 										});
+
+										if (sourceTiddler) {
+											this.lastSavedTime = this.currentTime;
+											this.lastUpdateTime = Date.now();
+
+											const timestampField = `timecode-${sourceTiddler}.${tiddlerTitle}`;
+											const updates = {};
+											updates[timestampField] = this.currentTime.toString();
+
+											// Use sourceTiddler instead of currentTiddler for the updates
+											BatchedUpdates.queue(sourceTiddler, updates);
+										}
 									}
 								}
 							});

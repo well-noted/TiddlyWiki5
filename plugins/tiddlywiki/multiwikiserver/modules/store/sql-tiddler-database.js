@@ -380,7 +380,8 @@ Validation is for the most part left to the caller
 			$field_values: JSON.stringify(Object.assign({}, tiddlerFields, { title: undefined }))
 		});
 		return {
-			tiddler_id: info.lastInsertRowid
+			tiddler_id: info.lastInsertRowid,
+			bag_name: bag_name
 		}
 	};
 

@@ -14,22 +14,40 @@ The video parser parses a video tiddler into an embeddable HTML element
 
 	const VIDEO_STATE = new WeakMap();
 
+	const getStateTitle = function(sourceTiddler, currentTiddler) {
+		return `$:/state/media/video/${sourceTiddler}/${currentTiddler}`;
+	};
+
 	const BatchedUpdates = {
 		updates: {},
 		timeout: null,
 
-		queue: function (tiddlerTitle, fields) {
-			const currentTiddler = $tw.wiki.getTiddler(tiddlerTitle);
-			const hasChanged = Object.entries(fields).some(([field, value]) =>
-				currentTiddler?.fields[field] !== value
-			);
+		queue: function (tiddlerTitle, fields, sourceTiddler) {
+			// Generate state tiddler title
+			const stateTitle = getStateTitle(sourceTiddler, tiddlerTitle);
+			
+			// Only handle timecode updates
+			if (fields.timecode !== undefined) {
+				// Get existing state tiddler if any
+				const stateTiddler = $tw.wiki.getTiddler(stateTitle);
+				
+				// Check if timecode changed
+				const timecodeDirty = !stateTiddler || 
+					stateTiddler.fields.text !== fields.timecode.toString();
 
-			if (hasChanged) {
-				this.updates[tiddlerTitle] = this.updates[tiddlerTitle] || {};
-				Object.assign(this.updates[tiddlerTitle], fields);
-
-				if (this.timeout) clearTimeout(this.timeout);
-				this.timeout = setTimeout(() => this.flush(), 2000);
+				// Queue state tiddler update if needed
+				if (timecodeDirty) {
+					this.updates[stateTitle] = {
+						title: stateTitle,
+						text: fields.timecode.toString(),
+						type: "text/vnd.tiddlywiki"
+					};
+					
+					if (this.timeout) {
+						clearTimeout(this.timeout);
+					}
+					this.timeout = setTimeout(() => this.flush(), 2000);
+				}
 			}
 		},
 
