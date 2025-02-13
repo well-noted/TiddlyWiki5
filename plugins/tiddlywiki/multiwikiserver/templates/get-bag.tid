@@ -29,8 +29,6 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 	</div>
 </form>
 
-<ul>
-
 <!-- Filter input for list-->
 <div class="filter-section">
 	<form method="GET">
@@ -46,39 +44,34 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 	</form>
 </div>
 
-<!-- Pagination Controls -->
-<div class="pagination-controls">
-    <$set name="pageSize" value="50">
-        <$set name="currentPage" value={{{ [<currentPage>!is[blank]else[1]] }}}>
-            <$set name="total" value={{{ [<bag-titles>jsonget[]count[]] }}}>
-                <$set name="pageCount" value={{{ [<total>divide<pageSize>ceil[]] }}}>
-                    Showing <<pageSize>> items per page (Page <<currentPage>> of <<pageCount>>)
-                    <div class="pagination-buttons">
-                        <$button disabled={{{ [<currentPage>match[1]] }}}
-                            class="tc-btn-invisible"
-                            set="currentPage"
-                            setTo={{{ [<currentPage>subtract[1]] }}}>
-                            Previous
-                        </$button>
-                        <$button disabled={{{ [<currentPage>match<pageCount>] }}}
-                            class="tc-btn-invisible"
-                            set="currentPage"
-                            setTo={{{ [<currentPage>add[1]] }}}>
-                            Next
-                        </$button>
-                    </div>
-                </$set>
-            </$set>
-        </$set>
-    </$set>
-</div>
+<!-- Main content with pagination -->
+<$set name="pageSize" value="50">
+	<$set name="currentPage" value={{{ [<currentPage>!is[blank]else[1]] }}}>
+		<$set name="total" value={{{ [<bag-titles>jsonget[]count[]] }}}>
+			<$set name="pageCount" value={{{ [<total>divide<pageSize>ceil[]] }}}>
+				<div class="pagination-controls">
+					<div>Showing <<pageSize>> items per page (Page <<currentPage>> of <<pageCount>>)</div>
+					<div class="pagination-buttons">
+						<$button disabled={{{ [<currentPage>match[1]] }}}
+							class="tc-btn-invisible"
+							set="currentPage"
+							setTo={{{ [<currentPage>subtract[1]] }}}>Previous</$button>
+						<$button disabled={{{ [<currentPage>match<pageCount>] }}}
+							class="tc-btn-invisible"
+							set="currentPage"
+							setTo={{{ [<currentPage>add[1]] }}}>Next</$button>
+					</div>
+				</div>
+			</$set>
+		</$set>
+	</$set>
+</$set>
 
 <!-- Select/Deselect-->
 <div class="checkbox-controls">
 	<a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = true)" class="button">Select All</a>
 	<a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = false)" class="button">Deselect All</a>
 </div>
-
 
 <!-- Tiddler List with Checkboxes -->
 <form action="tiddlers/" method="post" class="mws-form" enctype="multipart/form-data">
@@ -110,7 +103,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 									</label>
 								</$set>
 							</div>
-						</<$list>
+						</$list>
 					</$set>
 				</$set>
 			</$set>
@@ -131,7 +124,7 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 							<$text text=<<bag-name>>/>
 						</option>
 					</$let>
-				</$list>
+				</<$list>
 			</select>
 		</div>
 	</div>
