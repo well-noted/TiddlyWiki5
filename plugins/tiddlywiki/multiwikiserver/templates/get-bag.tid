@@ -46,6 +46,33 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 	</form>
 </div>
 
+<!-- Pagination Controls -->
+<div class="pagination-controls">
+    <$set name="pageSize" value="50">
+        <$set name="currentPage" value={{{ [<currentPage>!is[blank]else[1]] }}}>
+            <$set name="total" value={{{ [<bag-titles>jsonget[]count[]] }}}>
+                <$set name="pageCount" value={{{ [<total>divide<pageSize>ceil[]] }}}>
+                    Showing <<pageSize>> items per page (Page <<currentPage>> of <<pageCount>>)
+                    <div class="pagination-buttons">
+                        <$button disabled={{{ [<currentPage>match[1]] }}}
+                            class="tc-btn-invisible"
+                            set="currentPage"
+                            setTo={{{ [<currentPage>subtract[1]] }}}>
+                            Previous
+                        </$button>
+                        <$button disabled={{{ [<currentPage>match<pageCount>] }}}
+                            class="tc-btn-invisible"
+                            set="currentPage"
+                            setTo={{{ [<currentPage>add[1]] }}}>
+                            Next
+                        </$button>
+                    </div>
+                </$set>
+            </$set>
+        </$set>
+    </$set>
+</div>
+
 <!-- Select/Deselect-->
 <div class="checkbox-controls">
 	<a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = true)" class="button">Select All</a>
@@ -67,20 +94,26 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 		
 		<!-- Tiddler List with Checkboxes -->
 		<div class="tiddler-list">
-			<$list filter="[<bag-titles>jsonget[]sort[]]">
-				<div class="tiddler-entry">
-					<$set name="tidID" value={{{ [<currentTiddler>encodeuricomponent[]] }}}>
-						<input type="checkbox" 
-							id="chk_<<tidID>>" 
-							name="selected_tiddlers" 
-							value=<<currentTiddler>>
-						/>
-						<label for="chk_<<tidID>>">
-							<$link to=<<currentTiddler>>><<currentTiddler>></$link>
-						</label>
+			<$set name="pageSize" value="50">
+				<$set name="currentPage" value={{{ [<currentPage>!is[blank]else[1]] }}}>
+					<$set name="startIndex" value={{{ [<currentPage>subtract[1]multiply<pageSize>] }}}>
+						<$list filter="[<bag-titles>jsonget[]sort[]rest<startIndex>first<pageSize>]">
+							<div class="tiddler-entry">
+								<$set name="tidID" value={{{ [<currentTiddler>encodeuricomponent[]] }}}>
+									<input type="checkbox" 
+										id="chk_<<tidID>>" 
+										name="selected_tiddlers" 
+										value=<<currentTiddler>>
+									/>
+									<label for="chk_<<tidID>>">
+										<$link to=<<currentTiddler>>><<currentTiddler>></$link>
+									</label>
+								</$set>
+							</div>
+						</<$list>
 					</$set>
-				</div>
-			</$list>
+				</$set>
+			</$set>
 		</div>
 
 		<!-- Target Bag Selection -->
@@ -108,10 +141,6 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 		<input type="submit" value="Move Selected"/>
 	</div>
 </form>
-
-
-
-
 
 <style>
 .bag-selector {
@@ -236,5 +265,27 @@ button:active {
 
 .tiddler-entry input[type="checkbox"] {
 	margin-right: 10px;
+}
+
+.pagination-controls {
+    margin: 15px 0;
+    padding: 10px;
+    background-color: #f8f8f8;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.pagination-buttons {
+    margin-top: 10px;
+}
+
+.pagination-buttons button {
+    margin: 0 5px;
+    padding: 5px 15px;
+}
+
+.pagination-buttons button[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 </style>
