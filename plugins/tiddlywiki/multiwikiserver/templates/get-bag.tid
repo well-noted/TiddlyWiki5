@@ -1,14 +1,14 @@
 title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
 
-\define renderBagList()
-<$vars pageSize="50" currentPage={{$:/temp/mws/currentPage}} currentPageNum={{{ [<currentPage>!is[blank]else[1]] }}}>
+\define renderPagination()
+<$vars pageSize="50">
 <$let 
+    currentPage={{$:/temp/mws/currentPage}}
+    currentPageNum={{{ [<currentPage>!is[blank]else[1]] }}}
     startIndex={{{ [<currentPageNum>subtract[1]multiply<pageSize>] }}}
-    allTiddlers={{{ [<bag-titles>jsonget[]sort[]] }}}
-    totalTiddlers={{{ [<allTiddlers>count[]] }}}
+    totalTiddlers={{{ [<bag-titles>jsonget[]count[]] }}}
     pageCount={{{ [<totalTiddlers>divide<pageSize>ceil[]] }}}
 >
-
 <div class="pagination-controls">
     <div>Page <<currentPageNum>> of <<pageCount>></div>
     <div class="pagination-buttons">
@@ -22,14 +22,25 @@ title: $:/plugins/tiddlywiki/multiwikiserver/templates/get-bag
             setTo={{{ [<currentPageNum>add[1]] }}}>Next</$button>
     </div>
 </div>
+</$let>
+</$vars>
+\end
 
-<$list filter="[<allTiddlers>rest<startIndex>first<pageSize>]">
-<div class="tiddler-entry">
-    <input type="checkbox" name="selected_tiddlers" value=<<currentTiddler>>/>
-    <$link to=<<currentTiddler>>><<currentTiddler>></$link>
+\define renderTiddlerList()
+<$vars pageSize="50">
+<$let 
+    currentPage={{$:/temp/mws/currentPage}}
+    currentPageNum={{{ [<currentPage>!is[blank]else[1]] }}}
+    startIndex={{{ [<currentPageNum>subtract[1]multiply<pageSize>] }}}
+>
+<div class="tiddler-list">
+    <$list filter="[<bag-titles>jsonget[]sort[]rest<startIndex>first<pageSize>]">
+    <div class="tiddler-entry">
+        <input type="checkbox" name="selected_tiddlers" value=<<currentTiddler>>/>
+        <$link to=<<currentTiddler>>><<currentTiddler>></$link>
+    </div>
+    </$list>
 </div>
-</$list>
-
 </$let>
 </$vars>
 \end
@@ -52,7 +63,7 @@ Bag <$text text={{{ [<bag-name>]}}}/>
     </div>
 </form>
 
-<!-- Filter input for list-->
+<!-- Filter input -->
 <div class="filter-section">
     <form method="GET">
         <label>Filter tiddlers:</label>
@@ -79,9 +90,8 @@ Bag <$text text={{{ [<bag-name>]}}}/>
         <a href="javascript:document.querySelectorAll('input[name=\'selected_tiddlers\']').forEach(cb => cb.checked = false)" class="button">Deselect All</a>
     </div>
 
-    <div class="tiddler-list">
-        <<renderBagList>>
-    </div>
+    <<renderPagination>>
+    <<renderTiddlerList>>
 
     <div class="mws-form-field">
         <label>Target Bag</label>
