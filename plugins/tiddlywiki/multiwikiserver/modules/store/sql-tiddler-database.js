@@ -41,6 +41,49 @@ SqlTiddlerDatabase.prototype.close = function() {
 	this.engine.close();
 };
 
+SqlTiddlerDatabase.prototype.getFilteredBagTiddlers = function(bag_name, filterText, filterField) {
+	let query = `
+		SELECT DISTINCT t.title, t.tiddler_id
+		FROM tiddlers t
+		LEFT JOIN fields f ON t.tiddler_id = f.tiddler_id
+		WHERE t.bag_id IN (
+			SELECT bag_id
+			FROM bags
+			WHERE bag_name = $bag_name
+		)
+		AND t.is_deleted = FALSE
+	`;
+	
+	const params = {
+		$bag_name: bag_name,
+		$filterText: '%' + filterText + '%'
+	};
+
+	// Add field-specific filtering
+	if (filterField === "tag") {
+		query += ` AND EXISTS (
+			SELECT 1 FROM fields 
+			WHERE tiddler_id = t.tiddler_id 
+			AND field_name = 'tags' 
+			AND field_value LIKE $filterText
+		)`;
+	} else if (filterField === "text") {
+		query += ` AND EXISTS (
+			SELECT 1 FROM fields 
+			WHERE tiddler_id = t.tiddler_id 
+			AND field_name = 'text' 
+			AND field_value LIKE $filterText
+		)`;
+	} else {
+		// Default to title search
+		query += ` AND t.title LIKE $filterText`;
+	}
+
+	query += ` ORDER BY t.title ASC`;
+	
+	return this.engine.runStatementGetAll(query, params);
+};
+
 
 SqlTiddlerDatabase.prototype.transaction = function(fn) {
 	return this.engine.transaction(fn);
@@ -51,7 +94,6 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 		this.engine.runStatement(`
 	DROP TABLE IF EXISTS sessions
 `);
-
 		this.engine.runStatement(`
 	CREATE TABLE sessions (
 		session_id TEXT PRIMARY KEY,
@@ -61,11 +103,9 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 		FOREIGN KEY (user_id) REFERENCES users(user_id)
 	)
 `);
-
 		this.engine.runStatement(`
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
 `);
-
 	this.engine.runStatements([`
 		-- Users table
 		CREATE TABLE IF NOT EXISTS users (
@@ -83,7 +123,7 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 			session_id TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			last_accessed TEXT NOT NULL,
-			PRIMARY KEY (session_id),
+			PRIMARY KEY (user_id),
 			FOREIGN KEY (user_id) REFERENCES users(user_id)
 		)
 	`,`
@@ -213,19 +253,6 @@ SqlTiddlerDatabase.prototype.transaction = function(fn) {
 	`]);
 };
 
-SqlTiddlerDatabase.prototype.updateSessionTimestamp = function(sessionId) {
-	 const currentTimestamp = new Date().toISOString();
-	 
-	 this.engine.runStatement(`
-		  UPDATE sessions 
-		  SET last_accessed = $timestamp
-		  WHERE session_id = $sessionId
-	 `, {
-		  $sessionId: sessionId,
-		  $timestamp: currentTimestamp
-	 });
-};
-
 SqlTiddlerDatabase.prototype.listBags = function() {
 	const rows = this.engine.runStatementGetAll(`
 		SELECT bag_name, bag_id, accesscontrol, description
@@ -266,7 +293,7 @@ Returns array of {recipe_name:,recipe_id:,description:,bag_names: []}
 */
 SqlTiddlerDatabase.prototype.listRecipes = function() {
 	const rows = this.engine.runStatementGetAll(`
-		SELECT r.recipe_name, r.recipe_id, r.description, r.owner_id, b.bag_name, rb.position
+		SELECT r.recipe_name, r.recipe_id, r.description, b.bag_name, rb.position
 		FROM recipes AS r
 		JOIN recipe_bags AS rb ON rb.recipe_id = r.recipe_id
 		JOIN bags AS b ON rb.bag_id = b.bag_id
@@ -282,7 +309,6 @@ SqlTiddlerDatabase.prototype.listRecipes = function() {
 				recipe_name: row.recipe_name,
 				recipe_id: row.recipe_id,
 				description: row.description,
-				owner_id: row.owner_id,
 				bag_names: []
 			});
 		}
@@ -380,7 +406,8 @@ SqlTiddlerDatabase.prototype.saveBagTiddler = function(tiddlerFields,bag_name,at
 		$field_values: JSON.stringify(Object.assign({},tiddlerFields,{title: undefined}))
 	});
 	return {
-		tiddler_id: info.lastInsertRowid
+		tiddler_id: info.lastInsertRowid,
+		bag_name: bag_name
 	}
 };
 
@@ -533,27 +560,19 @@ SqlTiddlerDatabase.prototype.getRecipeTiddler = function(title,recipe_name) {
 Checks if a user has permission to access a recipe
 */
 SqlTiddlerDatabase.prototype.hasRecipePermission = function(userId, recipeName, permissionName) {
-	try {
-		// check if the user is the owner of the entity
-		const recipe = this.engine.runStatementGet(`
-			SELECT owner_id 
-			FROM recipes 
-			WHERE recipe_name = $recipe_name
-			`, {
-				$recipe_name: recipeName
-			});
+	// check if the user is the owner of the entity
+	const recipe = this.engine.runStatementGet(`
+		SELECT owner_id 
+		FROM recipes 
+		WHERE recipe_name = $recipe_name
+		`, {
+			$recipe_name: recipeName
+		});
 
-		if(!!recipe?.owner_id && recipe?.owner_id === userId) {
-			return true;
-		} else {
-			var permission = this.checkACLPermission(userId, "recipe", recipeName, permissionName, recipe?.owner_id)
-			return permission;
-		}
-			
-	} catch (error) {
-		console.error(error)
-		return false
+	if(recipe?.owner_id) {
+		return recipe.owner_id === userId;
 	}
+	return this.checkACLPermission(userId, "recipe", recipeName, permissionName)
 };
 
 /*
@@ -571,11 +590,10 @@ SqlTiddlerDatabase.prototype.getACLByName = function(entityType, entityName, fet
 
 	// First, check if there's an ACL record for the entity and get the permission_id
 	var checkACLExistsQuery = `
-		SELECT acl.*, permissions.permission_name
+		SELECT *
 		FROM acl
-		LEFT JOIN permissions ON acl.permission_id = permissions.permission_id
-		WHERE acl.entity_type = $entity_type
-		AND acl.entity_name = $entity_name
+		WHERE entity_type = $entity_type
+		AND entity_name = $entity_name
 	`;
 
 	if (!fetchAll) {
@@ -590,50 +608,43 @@ SqlTiddlerDatabase.prototype.getACLByName = function(entityType, entityName, fet
 	return aclRecord;
 }
 
-SqlTiddlerDatabase.prototype.checkACLPermission = function(userId, entityType, entityName, permissionName, ownerId) {
-	try {
-		// if the entityName starts with "$:/", we'll assume its a system bag/recipe, then grant the user permission
-		if(entityName.startsWith("$:/")) {
-			return true;
-		}
-
-		const aclRecords = this.getACLByName(entityType, entityName, true);
-		const aclRecord = aclRecords.find(record => record.permission_name === permissionName);
-
-		// If no ACL record exists, return true for hasPermission
-		if ((!aclRecord && !ownerId) || ((!!aclRecord && !!ownerId) && ownerId === userId)) {
-			return true;
-		}
-
-		// If ACL record exists, check for user permission using the retrieved permission_id
-		const checkPermissionQuery = `
-			SELECT *
-			FROM users u
-			JOIN user_roles ur ON u.user_id = ur.user_id
-			JOIN roles r ON ur.role_id = r.role_id
-			JOIN acl a ON r.role_id = a.role_id
-			WHERE u.user_id = $user_id
-			AND a.entity_type = $entity_type
-			AND a.entity_name = $entity_name
-			AND a.permission_id = $permission_id
-			LIMIT 1
-		`;
-
-		const result = this.engine.runStatementGet(checkPermissionQuery, {
-			$user_id: userId,
-			$entity_type: entityType,
-			$entity_name: entityName,
-			$permission_id: aclRecord?.permission_id
-		});
-		
-		let hasPermission = result !== undefined;
-
-		return hasPermission;
-			
-	} catch (error) {
-		console.error(error);
-		return false
+SqlTiddlerDatabase.prototype.checkACLPermission = function(userId, entityType, entityName) {
+	// if the entityName starts with "$:/", we'll assume its a system bag/recipe, then grant the user permission
+	if(entityName.startsWith("$:/")) {
+		return true;
 	}
+
+	const aclRecord = this.getACLByName(entityType, entityName);
+
+	// If no ACL record exists, return true for hasPermission
+	if (!aclRecord) {
+		return true;
+	}
+
+	// If ACL record exists, check for user permission using the retrieved permission_id
+	const checkPermissionQuery = `
+		SELECT 1
+		FROM users u
+		JOIN user_roles ur ON u.user_id = ur.user_id
+		JOIN roles r ON ur.role_id = r.role_id
+		JOIN acl a ON r.role_id = a.role_id
+		WHERE u.user_id = $user_id
+		AND a.entity_type = $entity_type
+		AND a.entity_name = $entity_name
+		AND a.permission_id = $permission_id
+		LIMIT 1
+	`;
+
+	const result = this.engine.runStatementGet(checkPermissionQuery, {
+		$user_id: userId,
+		$entity_type: entityType,
+		$entity_name: entityName,
+		$permission_id: aclRecord.permission_id
+	});
+	
+	let hasPermission = result !== undefined;
+
+	return hasPermission;
 };
 
 /**
@@ -1031,7 +1042,7 @@ SqlTiddlerDatabase.prototype.createOrUpdateUserSession = function(userId, sessio
 
 SqlTiddlerDatabase.prototype.deleteExpiredSessions = function() {
 	const expiryTime = new Date();
-	expiryTime.setHours(expiryTime.getHours() - 24); // 24 hour expiry
+	expiryTime.setHours(expiryTime.getHours() - 100); // 100 hour expiry
 	
 	this.engine.runStatement(`
 		DELETE FROM sessions 
@@ -1039,20 +1050,6 @@ SqlTiddlerDatabase.prototype.deleteExpiredSessions = function() {
 	`, {
 		$expiryTime: expiryTime.toISOString()
 	});
-};
-
-SqlTiddlerDatabase.prototype.createUserSession = function(userId, sessionId) {
-	const currentTimestamp = new Date().toISOString();
-	this.engine.runStatement(`
-			INSERT INTO sessions (user_id, session_id, created_at, last_accessed)
-			VALUES ($userId, $sessionId, $timestamp, $timestamp)
-	`, {
-			$userId: userId,
-			$sessionId: sessionId,
-			$timestamp: currentTimestamp
-	});
-
-	return sessionId;
 };
 
 SqlTiddlerDatabase.prototype.findUserBySessionId = function(sessionId) {
@@ -1076,6 +1073,19 @@ SqlTiddlerDatabase.prototype.findUserBySessionId = function(sessionId) {
 			this.deleteSession(sessionId);
 			return null;
 	}
+
+SqlTiddlerDatabase.prototype.updateSessionTimestamp = function(sessionId) {
+	 const currentTimestamp = new Date().toISOString();
+	 
+	 this.engine.runStatement(`
+		  UPDATE sessions 
+		  SET last_accessed = $timestamp
+		  WHERE session_id = $sessionId
+	 `, {
+		  $sessionId: sessionId,
+		  $timestamp: currentTimestamp
+	 });
+};
 
 	// Update the last_accessed timestamp
 	const currentTimestamp = new Date().toISOString();
