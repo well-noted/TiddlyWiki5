@@ -470,13 +470,79 @@ module-type: parser
 								};
 
 								const updateAndroidPlaybackState = () => {
-									if (window.Android && window.Android.updatePlaybackState) {
-										window.Android.updatePlaybackState(
-											!audio.paused,
-											Math.round(audio.currentTime * 1000)
-										);
+									try {
+										if (!audio.duration || isNaN(audio.duration)) return;
+										
+										if (window.Android && window.Android.updatePlaybackState) {
+											const position = Math.min(Math.max(0, audio.currentTime || 0), audio.duration);
+											window.Android.updatePlaybackState(
+												!audio.paused,
+												Math.round(position * 1000)
+											);
+										}
+									} catch (error) {
+										Debug.error('Error updating Android playback state:', error);
 									}
 								};
+
+								const safePlayback = async () => {
+									try {
+										if (!audio.paused) return; // Already playing
+										await audio.play();
+										updateAndroidPlaybackState();
+									} catch (error) {
+										Debug.error('Playback failed:', error);
+										// Reset state on error
+										if (window.Android && window.Android.updatePlaybackState) {
+											window.Android.updatePlaybackState(false, 0);
+										}
+									}
+								};
+
+								const safePause = () => {
+									try {
+										if (audio.paused) return; // Already paused
+										audio.pause();
+										updateAndroidPlaybackState();
+									} catch (error) {
+										Debug.error('Pause failed:', error);
+									}
+								};
+
+								const safeSeek = (position) => {
+									try {
+										const normalizedPosition = Math.min(Math.max(0, position), audio.duration || 0);
+										audio.currentTime = normalizedPosition;
+										updateAndroidPlaybackState();
+									} catch (error) {
+										Debug.error('Seek failed:', error);
+									}
+								};
+
+								// Replace existing media session handlers
+								navigator.mediaSession.setActionHandler('play', () => safePlayback());
+								navigator.mediaSession.setActionHandler('pause', () => safePause());
+								navigator.mediaSession.setActionHandler('seekto', (details) => {
+									if (details.seekTime !== undefined) {
+										safeSeek(details.seekTime);
+									}
+								});
+
+								// Update Android when audio state changes
+								['play', 'pause', 'timeupdate', 'seeking', 'seeked'].forEach(event => {
+									audio.addEventListener(event, () => {
+										updateAndroidPlaybackState();
+									});
+								});
+
+								// Handle potential errors
+								audio.addEventListener('error', (error) => {
+									Debug.error('Audio error:', error);
+									// Reset Android state
+									if (window.Android && window.Android.updatePlaybackState) {
+										window.Android.updatePlaybackState(false, 0);
+									}
+								});
 
 								audio.addEventListener('loadedmetadata', updateMetadata);
 								audio.addEventListener('durationchange', updateMetadata);
